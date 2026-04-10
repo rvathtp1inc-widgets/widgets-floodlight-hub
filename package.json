@@ -20,6 +20,8 @@
     "suncalc": "^1.9.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/luxon": "^3.6.2",
     "@types/node": "^22.13.10",
     "@types/suncalc": "^1.9.2",
     "drizzle-kit": "^0.31.4",

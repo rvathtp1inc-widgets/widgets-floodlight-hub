@@ -4,6 +4,9 @@ import { DateTime } from 'luxon';
 import { db } from '../db/client.js';
 import { hubSettings } from '../db/schema.js';
 
+type HubSettingsInsert = typeof hubSettings.$inferInsert;
+type HubSettingsPatch = Partial<Omit<HubSettingsInsert, 'id' | 'createdAt' | 'updatedAt'>>;
+
 export async function settingsRoutes(app: FastifyInstance) {
   app.get('/api/settings', async () => {
     const settings = await db.query.hubSettings.findFirst({ where: eq(hubSettings.id, 1) });
@@ -11,13 +14,13 @@ export async function settingsRoutes(app: FastifyInstance) {
   });
 
   app.patch('/api/settings', async (request) => {
-    const body = request.body as Record<string, unknown>;
+    const body = request.body as HubSettingsPatch;
     const existing = await db.query.hubSettings.findFirst({ where: eq(hubSettings.id, 1) });
     if (!existing) {
-      const created = await db.insert(hubSettings).values({ id: 1, ...(body as never) }).returning();
+      const created = await db.insert(hubSettings).values({ id: 1, ...body }).returning();
       return created[0];
     }
-    const updated = await db.update(hubSettings).set({ ...(body as never), updatedAt: DateTime.utc().toISO()! }).where(eq(hubSettings.id, 1)).returning();
+    const updated = await db.update(hubSettings).set({ ...body, updatedAt: DateTime.utc().toISO()! }).where(eq(hubSettings.id, 1)).returning();
     return updated[0];
   });
 }
