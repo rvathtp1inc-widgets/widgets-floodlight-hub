@@ -52,6 +52,11 @@ export async function evaluateGroupPolicy(groupId: number): Promise<PolicyDecisi
   if (!group) return { accepted: false, reason: 'group_not_found' };
   if (!group.automationEnabled) return { accepted: false, reason: 'group_automation_disabled' };
 
+  const nowUtc = DateTime.utc();
+  if (group.testModeEnabled && (!group.testModeUntil || nowUtc <= DateTime.fromISO(group.testModeUntil))) {
+    return { accepted: true, reason: 'accepted_test_mode' };
+  }
+
   const settings = (await db.query.hubSettings.findFirst({ where: eq(hubSettings.id, 1) })) ?? {
     id: 1,
     timezone: 'UTC',

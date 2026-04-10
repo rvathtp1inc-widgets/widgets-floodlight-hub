@@ -39,6 +39,8 @@ export const groups = sqliteTable('groups', {
   webhookKey: text('webhook_key').notNull().unique(),
   sharedSecretEncrypted: text('shared_secret_encrypted'),
   automationEnabled: integer('automation_enabled', { mode: 'boolean' }).notNull().default(true),
+  testModeEnabled: integer('test_mode_enabled', { mode: 'boolean' }).notNull().default(false),
+  testModeUntil: text('test_mode_until'),
   scheduleMode: text('schedule_mode').notNull().default('always'),
   scheduleJson: text('schedule_json').notNull().default('{}'),
   autoOffSeconds: integer('auto_off_seconds').notNull().default(120),
