@@ -31,7 +31,7 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     'created_at',
     'updated_at'
   ],
-  groups: ['id', 'name', 'webhook_key', 'shared_secret_encrypted']
+  groups: ['id', 'name', 'webhook_key', 'shared_secret_encrypted', 'test_mode_enabled', 'test_mode_until']
 };
 
 function getTableColumns(db: Database.Database, tableName: string): Set<string> {
