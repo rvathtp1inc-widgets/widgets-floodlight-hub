@@ -8,6 +8,18 @@ Local-first backend for Raspberry Pi deployment. It receives UniFi Protect webho
 - SQLite (better-sqlite3)
 - Drizzle ORM
 
+
+## Install / upgrade order (required)
+Run these commands in this exact order for both new installs and upgrades:
+
+1. `npm install`
+2. `npm run db:migrate`
+3. `npm run db:verify`
+4. `npm run build`
+5. `npm start`
+
+`npm run db:verify` fails loudly if required columns are missing (especially in `floodlights`) so startup cannot continue on a partially migrated database.
+
 ## Quick start (local dev)
 1. Copy env:
    ```bash
@@ -17,9 +29,10 @@ Local-first backend for Raspberry Pi deployment. It receives UniFi Protect webho
    ```bash
    npm install
    ```
-3. Run migration + seed:
+3. Run migration + verify + seed:
    ```bash
    npm run db:migrate
+   npm run db:verify
    npm run db:seed
    ```
 4. Start dev server:
