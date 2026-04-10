@@ -32,14 +32,9 @@ Server defaults to `http://0.0.0.0:8787`.
 ## API overview
 - Floodlights: `/api/floodlights` + `/:id/on|off|test|standardize|status`
 - Groups: `/api/groups` + `/:id/trigger-test`
-- Webhooks: `GET|POST /api/webhooks/unifi/:webhookKey` (resolves to either direct floodlight target or group target)
+- Webhooks: `GET|POST /api/webhooks/unifi/:webhookKey`
 - Settings: `GET|PATCH /api/settings`
 - Diagnostics: `/api/events`, `/api/commands`, `/api/timers`, `/api/health`
-
-## Migration flow
-- SQL migrations live in `drizzle/*.sql`.
-- `npm run db:migrate` applies each migration once and records it in `__migrations`.
-- `npm run db:seed` inserts the single default `hub_settings` row when missing.
 
 ## Environment variables
 - `PORT`: API port
@@ -86,8 +81,8 @@ sudo systemctl start widgets-floodlight-hub
 
 ## MVP behavior highlights
 - Webhook-in only (no UniFi API integration).
-- Supports both direct floodlight webhook targets and group webhook targets.
-- Group/floodlight test mode bypasses schedule checks for commissioning, while still requiring webhook auth and still honoring automation enabled, debounce/cooldown, overrides, and timer behavior.
+- Group webhook key + shared-secret auth.
+- Hub-side schedule, debounce, cooldown policy checks.
 - Group retriggers refresh full auto-off timer duration.
-- Timer expiry turns off targets, except floodlights in `force_on` override.
+- Timer expiry turns off group members, except floodlights in `force_on` override.
 - Shelly standardization disables `auto_off` and `auto_on` for relay id `0`.

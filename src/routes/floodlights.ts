@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { DateTime } from 'luxon';
 import { db } from '../db/client.js';
@@ -10,23 +10,7 @@ export async function floodlightRoutes(app: FastifyInstance) {
   app.get('/api/floodlights', async () => db.select().from(floodlights));
 
   app.post('/api/floodlights', async (request, reply) => {
-    const body = request.body as {
-      name: string;
-      shellyHost: string;
-      port?: number;
-      authEnabled?: boolean;
-      password?: string;
-      webhookKey?: string;
-      sharedSecret?: string;
-      testModeEnabled?: boolean;
-      testModeUntil?: string | null;
-      scheduleMode?: string;
-      scheduleJson?: unknown;
-      autoOffSeconds?: number;
-      debounceSeconds?: number;
-      cooldownSeconds?: number;
-      notes?: string;
-    };
+    const body = request.body as { name: string; shellyHost: string; port?: number; authEnabled?: boolean; password?: string; notes?: string };
     if (!body?.name || !body?.shellyHost) return reply.code(400).send({ error: 'name and shellyHost are required' });
     const port = body.port ?? 80;
     const authEnabled = body.authEnabled ?? false;
@@ -43,16 +27,7 @@ export async function floodlightRoutes(app: FastifyInstance) {
       shellyHost: body.shellyHost,
       shellyPort: port,
       authEnabled,
-      webhookKey: body.webhookKey ?? null,
-      sharedSecretEncrypted: body.sharedSecret ? encryptString(body.sharedSecret) : null,
       shellyPasswordEncrypted: password ? encryptString(password) : null,
-      testModeEnabled: body.testModeEnabled ?? false,
-      testModeUntil: body.testModeUntil ?? null,
-      scheduleMode: body.scheduleMode ?? 'always',
-      scheduleJson: JSON.stringify(body.scheduleJson ?? {}),
-      autoOffSeconds: body.autoOffSeconds ?? 120,
-      debounceSeconds: body.debounceSeconds ?? 0,
-      cooldownSeconds: body.cooldownSeconds ?? 0,
       notes: body.notes ?? null,
       onlineStatus: 'online',
       lastSeenAt: DateTime.utc().toISO()!,
@@ -75,12 +50,10 @@ export async function floodlightRoutes(app: FastifyInstance) {
     const existing = await db.query.floodlights.findFirst({ where: eq(floodlights.id, id) });
     if (!existing) return reply.code(404).send({ error: 'not_found' });
     const updates: Record<string, unknown> = { updatedAt: DateTime.utc().toISO() };
-    for (const key of ['name', 'shellyHost', 'shellyPort', 'automationEnabled', 'manualOverrideMode', 'overrideUntil', 'notes', 'authEnabled', 'webhookKey', 'testModeEnabled', 'testModeUntil', 'scheduleMode', 'autoOffSeconds', 'debounceSeconds', 'cooldownSeconds']) {
+    for (const key of ['name', 'shellyHost', 'shellyPort', 'automationEnabled', 'manualOverrideMode', 'overrideUntil', 'notes', 'authEnabled']) {
       if (body[key] !== undefined) updates[key] = body[key];
     }
-    if (body.scheduleJson !== undefined) updates.scheduleJson = JSON.stringify(body.scheduleJson);
     if (typeof body.password === 'string') updates.shellyPasswordEncrypted = encryptString(body.password);
-    if (typeof body.sharedSecret === 'string') updates.sharedSecretEncrypted = encryptString(body.sharedSecret);
     const out = await db.update(floodlights).set(updates).where(eq(floodlights.id, id)).returning();
     return out[0];
   });

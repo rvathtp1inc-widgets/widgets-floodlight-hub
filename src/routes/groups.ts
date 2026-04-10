@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { DateTime } from 'luxon';
 import { db } from '../db/client.js';
@@ -17,19 +17,8 @@ export async function groupRoutes(app: FastifyInstance) {
 
   app.post('/api/groups', async (request, reply) => {
     const body = request.body as {
-      name: string;
-      webhookKey: string;
-      sharedSecret?: string;
-      automationEnabled?: boolean;
-      testModeEnabled?: boolean;
-      testModeUntil?: string | null;
-      scheduleMode?: string;
-      scheduleJson?: unknown;
-      autoOffSeconds?: number;
-      debounceSeconds?: number;
-      cooldownSeconds?: number;
-      memberFloodlightIds?: number[];
-      notes?: string;
+      name: string; webhookKey: string; sharedSecret?: string; automationEnabled?: boolean; scheduleMode?: string; scheduleJson?: unknown;
+      autoOffSeconds?: number; debounceSeconds?: number; cooldownSeconds?: number; memberFloodlightIds?: number[]; notes?: string;
     };
     if (!body.name || !body.webhookKey) return reply.code(400).send({ error: 'name and webhookKey required' });
     const inserted = await db.insert(groups).values({
@@ -37,8 +26,6 @@ export async function groupRoutes(app: FastifyInstance) {
       webhookKey: body.webhookKey,
       sharedSecretEncrypted: body.sharedSecret ? encryptString(body.sharedSecret) : null,
       automationEnabled: body.automationEnabled ?? true,
-      testModeEnabled: body.testModeEnabled ?? false,
-      testModeUntil: body.testModeUntil ?? null,
       scheduleMode: body.scheduleMode ?? 'always',
       scheduleJson: JSON.stringify(body.scheduleJson ?? {}),
       autoOffSeconds: body.autoOffSeconds ?? 120,
@@ -65,7 +52,7 @@ export async function groupRoutes(app: FastifyInstance) {
     const existing = await db.query.groups.findFirst({ where: eq(groups.id, id) });
     if (!existing) return reply.code(404).send({ error: 'not_found' });
     const updates: Record<string, unknown> = { updatedAt: DateTime.utc().toISO() };
-    for (const key of ['name', 'webhookKey', 'automationEnabled', 'testModeEnabled', 'testModeUntil', 'scheduleMode', 'autoOffSeconds', 'debounceSeconds', 'cooldownSeconds', 'notes']) {
+    for (const key of ['name', 'webhookKey', 'automationEnabled', 'scheduleMode', 'autoOffSeconds', 'debounceSeconds', 'cooldownSeconds', 'notes']) {
       if (body[key] !== undefined) updates[key] = body[key];
     }
     if (body.scheduleJson !== undefined) updates.scheduleJson = JSON.stringify(body.scheduleJson);

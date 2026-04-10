@@ -1,11 +1,11 @@
 import { FastifyInstance } from 'fastify';
-import { handleWebhook } from '../services/webhooks/webhookService.js';
+import { handleGroupWebhook } from '../services/webhooks/webhookService.js';
 import { TimerService } from '../services/timers/timerService.js';
 
 export async function webhookRoutes(app: FastifyInstance, timerService: TimerService) {
   app.get('/api/webhooks/unifi/:webhookKey', async (request) => {
     const params = request.params as { webhookKey: string };
-    return handleWebhook({
+    return handleGroupWebhook({
       webhookKey: params.webhookKey,
       method: 'GET',
       remoteIp: request.ip,
@@ -16,7 +16,7 @@ export async function webhookRoutes(app: FastifyInstance, timerService: TimerSer
 
   app.post('/api/webhooks/unifi/:webhookKey', async (request) => {
     const params = request.params as { webhookKey: string };
-    return handleWebhook({
+    return handleGroupWebhook({
       webhookKey: params.webhookKey,
       method: 'POST',
       remoteIp: request.ip,
