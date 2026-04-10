@@ -48,12 +48,36 @@ export class TimerService {
     return result[0].id;
   }
 
+  async createOrRefreshFloodlightTimer(floodlightId: number, seconds: number, sourceEventId?: number) {
+    const now = DateTime.utc();
+    const expires = now.plus({ seconds }).toISO()!;
+    const existing = await db.query.activeTimers.findFirst({
+      where: and(eq(activeTimers.targetType, 'floodlight'), eq(activeTimers.targetId, floodlightId), eq(activeTimers.active, true))
+    });
+    if (existing) {
+      await db.update(activeTimers).set({ expiresAt: expires, updatedAt: now.toISO()! }).where(eq(activeTimers.id, existing.id));
+      return existing.id;
+    }
+    const result = await db.insert(activeTimers).values({
+      targetType: 'floodlight',
+      targetId: floodlightId,
+      startedAt: now.toISO()!,
+      expiresAt: expires,
+      sourceEventId,
+      active: true
+    }).returning({ id: activeTimers.id });
+    return result[0].id;
+  }
+
   private async processExpired() {
     const now = DateTime.utc().toISO()!;
     const expired = await db.select().from(activeTimers).where(and(eq(activeTimers.active, true), lte(activeTimers.expiresAt, now)));
     for (const timer of expired) {
       if (timer.targetType === 'group') {
         await this.expireGroup(timer.targetId);
+      }
+      if (timer.targetType === 'floodlight') {
+        await this.expireFloodlight(timer.targetId);
       }
       await db.update(activeTimers).set({ active: false, updatedAt: now }).where(eq(activeTimers.id, timer.id));
     }
@@ -76,6 +100,20 @@ export class TimerService {
       } catch (error) {
         await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'off', success: false, errorText: (error as Error).message });
       }
+    }
+  }
+
+  private async expireFloodlight(floodlightId: number) {
+    const light = await db.query.floodlights.findFirst({ where: eq(floodlights.id, floodlightId) });
+    if (!light) return;
+    if (light.manualOverrideMode === 'force_on') return;
+    const password = decryptString(light.shellyPasswordEncrypted ?? undefined);
+    try {
+      const response = await shellyService.setOutput(light.shellyHost, light.shellyPort, light.relayId, false, password);
+      await db.update(floodlights).set({ lastKnownOutput: false, lastCommandStatus: 'ok', updatedAt: DateTime.utc().toISO()! }).where(eq(floodlights.id, light.id));
+      await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'off', success: true, responseSummary: JSON.stringify(response) });
+    } catch (error) {
+      await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'off', success: false, errorText: (error as Error).message });
     }
   }
 }

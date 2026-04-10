@@ -2,7 +2,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import SunCalc from 'suncalc';
 import { DateTime } from 'luxon';
 import { db } from '../../db/client.js';
-import { eventLogs, groups, hubSettings } from '../../db/schema.js';
+import { eventLogs, floodlights, groups, hubSettings } from '../../db/schema.js';
 
 type PolicyDecision = { accepted: boolean; reason: string };
 
@@ -90,6 +90,59 @@ export async function evaluateGroupPolicy(groupId: number): Promise<PolicyDecisi
     const elapsed = now.diff(last, 'seconds').seconds;
     if (group.debounceSeconds > 0 && elapsed < group.debounceSeconds) return { accepted: false, reason: 'debounce_violation' };
     if (group.cooldownSeconds > 0 && elapsed < group.cooldownSeconds) return { accepted: false, reason: 'cooldown_violation' };
+  }
+
+  return { accepted: true, reason: 'accepted' };
+}
+
+export async function evaluateFloodlightPolicy(floodlightId: number): Promise<PolicyDecision> {
+  const light = await db.query.floodlights.findFirst({ where: eq(floodlights.id, floodlightId) });
+  if (!light) return { accepted: false, reason: 'floodlight_not_found' };
+  if (!light.automationEnabled) return { accepted: false, reason: 'floodlight_automation_disabled' };
+
+  const nowUtc = DateTime.utc();
+  if (light.testModeEnabled && (!light.testModeUntil || nowUtc <= DateTime.fromISO(light.testModeUntil))) {
+    return { accepted: true, reason: 'accepted_test_mode' };
+  }
+
+  const settings = (await db.query.hubSettings.findFirst({ where: eq(hubSettings.id, 1) })) ?? {
+    id: 1,
+    timezone: 'UTC',
+    latitude: null,
+    longitude: null,
+    astroEnabled: false,
+    defaultWebhookHeaderName: 'X-Widgets-Secret',
+    uiSessionTimeoutMinutes: 60,
+    logRetentionDays: 30,
+    createdAt: '',
+    updatedAt: ''
+  };
+
+  const now = DateTime.now().setZone(settings.timezone);
+  const schedule = parseSchedule(light.scheduleJson);
+  if (light.scheduleMode === 'fixed_window') {
+    const start = String(schedule.start ?? '00:00');
+    const end = String(schedule.end ?? '23:59');
+    if (!fixedWindowAllowed(now, start, end)) return { accepted: false, reason: 'outside_fixed_window' };
+  }
+
+  if (light.scheduleMode === 'sunset_to_sunrise' || light.scheduleMode === 'astro_offset') {
+    if (!settings.astroEnabled || !settings.latitude || !settings.longitude) return { accepted: false, reason: 'astro_config_missing' };
+    if (!astroAllowed(light.scheduleMode, schedule, settings)) return { accepted: false, reason: 'outside_astro_window' };
+  }
+
+  const recent = await db
+    .select()
+    .from(eventLogs)
+    .where(and(eq(eventLogs.targetType, 'floodlight'), eq(eventLogs.targetId, light.id), eq(eventLogs.decision, 'accepted')))
+    .orderBy(desc(eventLogs.createdAt))
+    .limit(1);
+
+  if (recent[0]) {
+    const last = DateTime.fromISO(recent[0].createdAt);
+    const elapsed = now.diff(last, 'seconds').seconds;
+    if (light.debounceSeconds > 0 && elapsed < light.debounceSeconds) return { accepted: false, reason: 'debounce_violation' };
+    if (light.cooldownSeconds > 0 && elapsed < light.cooldownSeconds) return { accepted: false, reason: 'cooldown_violation' };
   }
 
   return { accepted: true, reason: 'accepted' };
