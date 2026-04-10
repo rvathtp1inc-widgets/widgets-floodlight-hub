@@ -1,7 +1,16 @@
 import crypto from 'node:crypto';
 
-function md5(data: string): string {
-  return crypto.createHash('md5').update(data).digest('hex');
+type DigestAlgorithm = 'MD5' | 'MD5-SESS' | 'SHA-256' | 'SHA-256-SESS' | 'SHA-512-256' | 'SHA-512-256-SESS';
+
+function digest(data: string, algorithm: DigestAlgorithm): string {
+  const normalized = algorithm.toUpperCase() as DigestAlgorithm;
+  const hashAlgo =
+    normalized === 'MD5' || normalized === 'MD5-SESS'
+      ? 'md5'
+      : normalized === 'SHA-256' || normalized === 'SHA-256-SESS'
+        ? 'sha256'
+        : 'sha512-256';
+  return crypto.createHash(hashAlgo).update(data).digest('hex');
 }
 
 function parseDigestChallenge(header: string): Record<string, string> {
@@ -21,20 +30,25 @@ export function buildDigestHeader(params: { wwwAuthenticate: string; method: str
   const challenge = parseDigestChallenge(params.wwwAuthenticate);
   const realm = challenge.realm;
   const nonce = challenge.nonce;
+  const algorithm = (challenge.algorithm?.toUpperCase() as DigestAlgorithm | undefined) ?? 'MD5';
   const qop = challenge.qop?.includes('auth') ? 'auth' : undefined;
   if (!realm || !nonce) throw new Error('Invalid digest challenge');
 
   const nc = '00000001';
   const cnonce = crypto.randomBytes(8).toString('hex');
-  const ha1 = md5(`${params.username}:${realm}:${params.password}`);
-  const ha2 = md5(`${params.method}:${params.uri}`);
-  const response = qop ? md5(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`) : md5(`${ha1}:${nonce}:${ha2}`);
+  const baseHa1 = digest(`${params.username}:${realm}:${params.password}`, algorithm);
+  const ha1 = algorithm.endsWith('-SESS') ? digest(`${baseHa1}:${nonce}:${cnonce}`, algorithm) : baseHa1;
+  const ha2 = digest(`${params.method}:${params.uri}`, algorithm);
+  const response = qop
+    ? digest(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`, algorithm)
+    : digest(`${ha1}:${nonce}:${ha2}`, algorithm);
 
   const segments = [
     `username="${params.username}"`,
     `realm="${realm}"`,
     `nonce="${nonce}"`,
     `uri="${params.uri}"`,
+    challenge.algorithm ? `algorithm=${challenge.algorithm}` : undefined,
     qop ? `qop=${qop}` : undefined,
     qop ? `nc=${nc}` : undefined,
     qop ? `cnonce="${cnonce}"` : undefined,
