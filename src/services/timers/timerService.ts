@@ -1,9 +1,10 @@
 import { and, eq, lte } from 'drizzle-orm';
 import { DateTime } from 'luxon';
 import { db } from '../../db/client.js';
-import { activeTimers, commandLogs, floodlights, groupMemberships, groups } from '../../db/schema.js';
+import { activeTimers, floodlights, groupMemberships, groups } from '../../db/schema.js';
 import { shellyService } from '../shelly/shellyService.js';
 import { decryptString } from '../../lib/secrets.js';
+import { insertCommandLogWithRetention } from '../diagnostics/logRetentionService.js';
 
 export class TimerService {
   private interval?: NodeJS.Timeout;
@@ -96,9 +97,9 @@ export class TimerService {
       try {
         const response = await shellyService.setOutput(light.shellyHost, light.shellyPort, light.relayId, false, password);
         await db.update(floodlights).set({ lastKnownOutput: false, lastCommandStatus: 'ok', updatedAt: DateTime.utc().toISO()! }).where(eq(floodlights.id, light.id));
-        await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'off', success: true, responseSummary: JSON.stringify(response) });
+        await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'off', success: true, responseSummary: JSON.stringify(response) });
       } catch (error) {
-        await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'off', success: false, errorText: (error as Error).message });
+        await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'off', success: false, errorText: (error as Error).message });
       }
     }
   }
@@ -111,9 +112,9 @@ export class TimerService {
     try {
       const response = await shellyService.setOutput(light.shellyHost, light.shellyPort, light.relayId, false, password);
       await db.update(floodlights).set({ lastKnownOutput: false, lastCommandStatus: 'ok', updatedAt: DateTime.utc().toISO()! }).where(eq(floodlights.id, light.id));
-      await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'off', success: true, responseSummary: JSON.stringify(response) });
+      await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'off', success: true, responseSummary: JSON.stringify(response) });
     } catch (error) {
-      await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'off', success: false, errorText: (error as Error).message });
+      await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'off', success: false, errorText: (error as Error).message });
     }
   }
 }

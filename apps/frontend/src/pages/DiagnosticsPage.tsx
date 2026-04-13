@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { HealthSummary } from '../components/HealthSummary';
 import { EventLogTable } from '../components/EventLogTable';
 import { CommandLogTable } from '../components/CommandLogTable';
@@ -17,6 +18,7 @@ function toErrorMessage(error: unknown): string | undefined {
 }
 
 export function DiagnosticsPage() {
+  const [searchText, setSearchText] = useState('');
   const healthQuery = useDiagnosticsHealth();
   const eventsQuery = useDiagnosticsEvents();
   const commandsQuery = useDiagnosticsCommands();
@@ -51,6 +53,8 @@ export function DiagnosticsPage() {
 
       <EventLogTable
         events={eventsQuery.data}
+        searchText={searchText}
+        onSearchTextChange={setSearchText}
         isLoading={eventsQuery.isLoading}
         isError={eventsQuery.isError}
         errorMessage={toErrorMessage(eventsQuery.error)}
@@ -62,6 +66,7 @@ export function DiagnosticsPage() {
 
       <CommandLogTable
         commands={commandsQuery.data}
+        searchText={searchText}
         isLoading={commandsQuery.isLoading}
         isError={commandsQuery.isError}
         errorMessage={toErrorMessage(commandsQuery.error)}
