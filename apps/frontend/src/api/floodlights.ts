@@ -37,6 +37,8 @@ export type Floodlight = {
   authEnabled: boolean;
   lastSeenAt: string | null;
   lastCommandStatus: string | null;
+  hasSharedSecret: boolean;
+  hasShellyPassword: boolean;
 };
 
 export type FloodlightUpsertInput = {
@@ -57,6 +59,8 @@ export type FloodlightUpsertInput = {
   testModeEnabled: boolean;
   scheduleMode: ScheduleMode;
   scheduleJson: ScheduleJson;
+  clearSharedSecret?: boolean;
+  clearShellyPassword?: boolean;
 };
 
 const api = axios.create({ baseURL: '' });
@@ -86,9 +90,9 @@ export async function createFloodlight(input: FloodlightUpsertInput): Promise<Fl
     port: input.shellyPort,
     relayId: input.relayId,
     authEnabled: input.authEnabled,
-    password: input.shellyPassword,
+    password: input.shellyPassword?.trim() || undefined,
     webhookKey: input.webhookKey || undefined,
-    sharedSecret: input.sharedSecret || undefined,
+    sharedSecret: input.sharedSecret?.trim() || undefined,
     automationEnabled: input.automationEnabled,
     manualOverrideMode: input.manualOverrideMode,
     autoOffSeconds: input.autoOffSeconds,
@@ -114,9 +118,9 @@ export async function updateFloodlight(
     shellyPort: input.shellyPort,
     relayId: input.relayId,
     authEnabled: input.authEnabled,
-    password: input.shellyPassword || undefined,
+    password: input.shellyPassword?.trim() || undefined,
     webhookKey: input.webhookKey || undefined,
-    sharedSecret: input.sharedSecret || undefined,
+    sharedSecret: input.sharedSecret?.trim() || undefined,
     automationEnabled: input.automationEnabled,
     manualOverrideMode: input.manualOverrideMode,
     autoOffSeconds: input.autoOffSeconds,
@@ -126,6 +130,8 @@ export async function updateFloodlight(
     testModeEnabled: input.testModeEnabled,
     scheduleMode: input.scheduleMode,
     scheduleJson: input.scheduleJson,
+    clearSharedSecret: input.clearSharedSecret === true ? true : undefined,
+    clearShellyPassword: input.clearShellyPassword === true ? true : undefined,
   };
 
   const { data } = await api.patch<Floodlight>(`/api/floodlights/${id}`, payload);

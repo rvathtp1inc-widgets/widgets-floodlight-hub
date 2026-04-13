@@ -110,9 +110,9 @@ function normalizeFormValues(values: FloodlightFormValues): FloodlightUpsertInpu
     shellyPort: Number(values.shellyPort),
     relayId: Number(values.relayId),
     authEnabled: values.authEnabled,
-    shellyPassword: values.shellyPassword || undefined,
+    shellyPassword: values.shellyPassword.trim() || undefined,
     webhookKey: values.webhookKey || undefined,
-    sharedSecret: values.sharedSecret || undefined,
+    sharedSecret: values.sharedSecret.trim() || undefined,
     automationEnabled: values.automationEnabled,
     manualOverrideMode: values.manualOverrideMode,
     autoOffSeconds: Number(values.autoOffSeconds),
@@ -215,8 +215,37 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+function buildAbsoluteWebhookUrl(origin: string, webhookKey: string): string {
+  const key = webhookKey || '{webhookKey}';
+  return `${origin}/api/webhooks/unifi/${key}`;
+}
+
 async function copyToClipboard(value: string): Promise<void> {
-  await navigator.clipboard.writeText(value);
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Clipboard not available in this environment.');
+  }
+
+  const textArea = document.createElement('textarea');
+  textArea.value = value;
+  textArea.setAttribute('readonly', '');
+  textArea.style.position = 'fixed';
+  textArea.style.left = '-9999px';
+  textArea.style.top = '0';
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textArea);
+
+  if (!copied) {
+    throw new Error('Unable to copy to clipboard.');
+  }
 }
 
 function getErrorMessage(error: unknown): string {
@@ -249,6 +278,13 @@ export function FloodlightsPage() {
   const [formValues, setFormValues] = useState<FloodlightFormValues>(defaultFormValues);
   const [webhookManuallyEdited, setWebhookManuallyEdited] = useState(false);
   const [actionMessage, setActionMessage] = useState<ActionMessage>(null);
+  const [hubOrigin, setHubOrigin] = useState<string>('http://localhost:3000');
+  const [clearSharedSecret, setClearSharedSecret] = useState(false);
+  const [clearShellyPassword, setClearShellyPassword] = useState(false);
+
+  function showActionMessage(type: 'success' | 'error', text: string) {
+    setActionMessage({ type, text });
+  }
 
   useEffect(() => {
     if (webhookManuallyEdited) {
@@ -271,6 +307,20 @@ export function FloodlightsPage() {
     }));
   }, [formValues.scheduleMode, formValues.fixedWindowStart, formValues.fixedWindowEnd, formValues.sunsetOffsetMinutes, formValues.sunriseOffsetMinutes]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setHubOrigin(window.location.origin);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!actionMessage) {
+      return;
+    }
+    const timeout = window.setTimeout(() => setActionMessage(null), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [actionMessage]);
+
   const submitLabel = editingId === null ? 'Create Floodlight' : 'Save Changes';
 
   const currentEdit = useMemo(
@@ -279,7 +329,7 @@ export function FloodlightsPage() {
   );
 
   const headerName = settingsQuery.data?.defaultWebhookHeaderName || 'X-Widgets-Secret';
-  const webhookUrl = `/api/webhooks/unifi/${formValues.webhookKey || '{webhookKey}'}`;
+  const webhookUrl = buildAbsoluteWebhookUrl(hubOrigin, formValues.webhookKey);
   const headerLine = `${headerName}: ${formValues.sharedSecret || '{sharedSecret}'}`;
   const curlExample = `curl -X POST '${webhookUrl}' -H '${headerLine}' -H 'Content-Type: application/json' -d '{}'`;
 
@@ -289,17 +339,40 @@ export function FloodlightsPage() {
 
     const payload = normalizeFormValues(formValues);
 
+    if (editingId !== null) {
+      payload.clearSharedSecret = clearSharedSecret;
+      payload.clearShellyPassword = clearShellyPassword;
+
+      if (!formValues.shellyPassword.trim()) {
+        delete payload.shellyPassword;
+      }
+      if (!formValues.sharedSecret.trim()) {
+        delete payload.sharedSecret;
+      }
+      if (clearShellyPassword) {
+        delete payload.shellyPassword;
+      }
+      if (clearSharedSecret) {
+        delete payload.sharedSecret;
+      }
+    }
+
     try {
       if (editingId === null) {
         await createMutation.mutateAsync(payload);
         setFormValues(defaultFormValues);
         setWebhookManuallyEdited(false);
+        setClearSharedSecret(false);
+        setClearShellyPassword(false);
+        showActionMessage('success', 'Floodlight created successfully. Recommended next step: run Standardize Config.');
       } else {
         await updateMutation.mutateAsync({ id: editingId, input: payload });
+        setClearSharedSecret(false);
+        setClearShellyPassword(false);
+        showActionMessage('success', 'Floodlight saved successfully.');
       }
-      setActionMessage({ type: 'success', text: 'Floodlight saved successfully' });
     } catch (mutationError) {
-      setActionMessage({ type: 'error', text: `Save failed: ${getErrorMessage(mutationError)}` });
+      showActionMessage('error', `Save failed: ${getErrorMessage(mutationError)}`);
     }
   }
 
@@ -307,6 +380,8 @@ export function FloodlightsPage() {
     setEditingId(null);
     setFormValues(defaultFormValues);
     setWebhookManuallyEdited(false);
+    setClearSharedSecret(false);
+    setClearShellyPassword(false);
     setActionMessage(null);
   }
 
@@ -314,6 +389,8 @@ export function FloodlightsPage() {
     setEditingId(floodlight.id);
     setFormValues(mapFloodlightToFormValues(floodlight));
     setWebhookManuallyEdited(true);
+    setClearSharedSecret(false);
+    setClearShellyPassword(false);
     setActionMessage(null);
   }
 
@@ -325,15 +402,17 @@ export function FloodlightsPage() {
       </header>
 
       {actionMessage && (
-        <p
-          className={`rounded-md border p-3 text-sm ${
-            actionMessage.type === 'success'
-              ? 'border-emerald-500/40 bg-emerald-900/30 text-emerald-200'
-              : 'border-red-600/40 bg-red-950/40 text-red-200'
-          }`}
-        >
-          {actionMessage.text}
-        </p>
+        <div className="fixed right-4 top-4 z-50 max-w-md">
+          <p
+            className={`rounded-md border p-3 text-sm shadow-xl ${
+              actionMessage.type === 'success'
+                ? 'border-emerald-500/40 bg-emerald-900/90 text-emerald-200'
+                : 'border-red-600/40 bg-red-950/90 text-red-200'
+            }`}
+          >
+            {actionMessage.text}
+          </p>
+        </div>
       )}
 
       <div className="grid gap-6 xl:grid-cols-[2fr,1fr]">
@@ -376,11 +455,15 @@ export function FloodlightsPage() {
 
                 <div className="grid gap-x-6 gap-y-1 md:grid-cols-2">
                   <p><strong>Name:</strong> {floodlight.name}</p>
-                  <p><strong>Shelly Host:</strong> {floodlight.shellyHost}</p>
+                  <p><strong>Shelly Device IP:</strong> {floodlight.shellyHost}</p>
                   <p><strong>Webhook Key:</strong> {floodlight.webhookKey ?? '—'}</p>
+                  <p><strong>Auto Off:</strong> {floodlight.autoOffSeconds}s</p>
                   <p><strong>Online Status:</strong> {floodlight.onlineStatus}</p>
                   <p><strong>Last Known Output:</strong> {String(Boolean(floodlight.lastKnownOutput))}</p>
                   <p><strong>Automation Enabled:</strong> {String(floodlight.automationEnabled)}</p>
+                  <p><strong>Shared Secret:</strong> {floodlight.hasSharedSecret ? 'Configured' : 'Not set'}</p>
+                  <p><strong>Shelly Auth:</strong> {floodlight.authEnabled ? 'Enabled' : 'Disabled'}</p>
+                  <p><strong>Shelly Password:</strong> {!floodlight.authEnabled ? 'Not required' : floodlight.hasShellyPassword ? 'Configured' : 'Not set'}</p>
                   <p><strong>Test Mode Enabled:</strong> {String(floodlight.testModeEnabled)}</p>
                   <p><strong>Manual Override:</strong> {floodlight.manualOverrideMode}</p>
                   <p><strong>Schedule Mode:</strong> {floodlight.scheduleMode}</p>
@@ -389,23 +472,65 @@ export function FloodlightsPage() {
                   <p><strong>Test Mode Until:</strong> {floodlight.testModeUntil ?? '—'}</p>
                 </div>
 
+                <div className="mt-3 rounded border border-slate-700 bg-slate-950/40 p-3 text-xs text-slate-300">
+                  <h4 className="mb-1 text-sm font-semibold text-white">Direct Trigger</h4>
+                  <p><strong>Webhook Key:</strong> {floodlight.webhookKey ?? '—'}</p>
+                  <p><strong>URL:</strong> {buildAbsoluteWebhookUrl(hubOrigin, floodlight.webhookKey ?? '')}</p>
+                  <p><strong>Header Name:</strong> {headerName}</p>
+                  <p><strong>Secret:</strong> Shared secret required in header.</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="rounded border border-slate-500 px-2 py-1"
+                      onClick={() =>
+                        void copyToClipboard(buildAbsoluteWebhookUrl(hubOrigin, floodlight.webhookKey ?? ''))
+                          .then(() => showActionMessage('success', `Webhook URL copied for ${floodlight.name}`))
+                          .catch(() => showActionMessage('error', 'Copy failed. Please copy manually.'))
+                      }
+                    >
+                      Copy URL
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-slate-500 px-2 py-1"
+                      onClick={() =>
+                        void copyToClipboard(`${headerName}: {sharedSecret}`)
+                          .then(() => showActionMessage('success', `Webhook header copied for ${floodlight.name}`))
+                          .catch(() => showActionMessage('error', 'Copy failed. Please copy manually.'))
+                      }
+                    >
+                      Copy Header
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-slate-500 px-2 py-1"
+                      onClick={() =>
+                        void copyToClipboard(
+                          `curl -X POST '${buildAbsoluteWebhookUrl(hubOrigin, floodlight.webhookKey ?? '')}' -H '${headerName}: {sharedSecret}' -H 'Content-Type: application/json' -d '{}'`,
+                        )
+                          .then(() => showActionMessage('success', `Webhook example copied for ${floodlight.name}`))
+                          .catch(() => showActionMessage('error', 'Copy failed. Please copy manually.'))
+                      }
+                    >
+                      Copy Example
+                    </button>
+                  </div>
+                </div>
+
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={async () => {
                       try {
                         const result = await testMutation.mutateAsync(floodlight.id);
-                        setActionMessage({
-                          type: result.ok ? 'success' : 'error',
-                          text: result.ok
+                        showActionMessage(
+                          result.ok ? 'success' : 'error',
+                          result.ok
                             ? `Connectivity test succeeded for ${floodlight.name}`
                             : `Connectivity test failed for ${floodlight.name}: ${result.error ?? 'unknown error'}`,
-                        });
+                        );
                       } catch (mutationError) {
-                        setActionMessage({
-                          type: 'error',
-                          text: `Connectivity test failed for ${floodlight.name}: ${getErrorMessage(mutationError)}`,
-                        });
+                        showActionMessage('error', `Connectivity test failed for ${floodlight.name}: ${getErrorMessage(mutationError)}`);
                       }
                     }}
                     className="rounded border border-slate-500 px-2 py-1 text-xs"
@@ -417,24 +542,25 @@ export function FloodlightsPage() {
                     onClick={async () => {
                       try {
                         const result = await standardizeMutation.mutateAsync(floodlight.id);
-                        setActionMessage({
-                          type: result.ok ? 'success' : 'error',
-                          text: result.ok
+                        showActionMessage(
+                          result.ok ? 'success' : 'error',
+                          result.ok
                             ? `Standardize config succeeded for ${floodlight.name}`
                             : `Standardize config failed for ${floodlight.name}`,
-                        });
+                        );
                       } catch (mutationError) {
-                        setActionMessage({
-                          type: 'error',
-                          text: `Standardize config failed for ${floodlight.name}: ${getErrorMessage(mutationError)}`,
-                        });
+                        showActionMessage('error', `Standardize config failed for ${floodlight.name}: ${getErrorMessage(mutationError)}`);
                       }
                     }}
                     className="rounded border border-slate-500 px-2 py-1 text-xs"
+                    title="Applies the recommended Shelly configuration for this system, including disabling local timers/auto behaviors and preparing the device for hub-managed control. Use this after adding a new device."
                   >
                     Standardize Config
                   </button>
                 </div>
+                <p className="mt-2 text-xs text-slate-400">
+                  Standardize Config applies recommended Shelly settings (disables local timers/auto behaviors) so this hub has full control.
+                </p>
               </article>
             ))}
           </div>
@@ -442,7 +568,9 @@ export function FloodlightsPage() {
 
         <aside className="rounded-xl border border-slate-700 bg-slate-900 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-white">{editingId === null ? 'Create Floodlight' : `Edit #${editingId}`}</h2>
+            <h2 className="text-lg font-semibold text-white">
+              {editingId === null ? 'Create Floodlight' : `Editing: ${currentEdit?.name ?? 'Floodlight'}`}
+            </h2>
             {editingId !== null && (
               <button type="button" className="text-xs text-slate-300 underline" onClick={startCreate}>
                 New
@@ -466,7 +594,7 @@ export function FloodlightsPage() {
 
             <Section title="Shelly Device Configuration">
               <label className="block">
-                <InfoLabel label="Shelly Host" helpText="IP address of the Shelly device on the local network. This is where the hub sends control commands." />
+                <InfoLabel label="Shelly Device IP" helpText="IP address of the Shelly device on the local network. This is where the hub sends control commands." />
                 <input className={sharedInputClass} value={formValues.shellyHost} onChange={(e) => setFormValues((v) => ({ ...v, shellyHost: e.target.value }))} required />
               </label>
 
@@ -490,7 +618,41 @@ export function FloodlightsPage() {
 
               <label className="block">
                 <InfoLabel label="Shelly Password" helpText="Password used for Shelly authentication. Leave blank if authentication is disabled." />
-                <input type="password" className={sharedInputClass} value={formValues.shellyPassword} onChange={(e) => setFormValues((v) => ({ ...v, shellyPassword: e.target.value }))} />
+                <input
+                  type="password"
+                  className={sharedInputClass}
+                  value={formValues.shellyPassword}
+                  onChange={(e) => {
+                    setClearShellyPassword(false);
+                    setFormValues((v) => ({ ...v, shellyPassword: e.target.value }));
+                  }}
+                />
+                {editingId !== null && (
+                  <>
+                    <p className="mt-1 text-xs text-slate-300">
+                      Shelly Password: {currentEdit?.hasShellyPassword ? '••••• (Configured)' : 'Not set'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">Enter a new value to replace the existing Shelly password. Leave blank to keep the current value.</p>
+                    {currentEdit?.hasShellyPassword && (
+                      <button
+                        type="button"
+                        className="mt-1 rounded border border-amber-500/60 px-2 py-1 text-xs text-amber-200"
+                        onClick={() => {
+                          if (window.confirm('Clear the saved Shelly password for this floodlight?')) {
+                            setFormValues((v) => ({ ...v, shellyPassword: '' }));
+                            setClearShellyPassword(true);
+                            showActionMessage('success', 'Shelly password will be cleared when you save.');
+                          }
+                        }}
+                      >
+                        Clear Shelly Password
+                      </button>
+                    )}
+                    {clearShellyPassword && (
+                      <p className="mt-1 text-xs text-amber-300">Shelly password is marked for removal. Save to apply.</p>
+                    )}
+                  </>
+                )}
               </label>
             </Section>
 
@@ -510,7 +672,40 @@ export function FloodlightsPage() {
 
               <label className="block">
                 <InfoLabel label="Shared Secret" helpText="A secret value that external systems must include in the request header. The Widgets UF-Hub will reject requests that do not include this value." />
-                <input className={sharedInputClass} value={formValues.sharedSecret} onChange={(e) => setFormValues((v) => ({ ...v, sharedSecret: e.target.value }))} />
+                <input
+                  className={sharedInputClass}
+                  value={formValues.sharedSecret}
+                  onChange={(e) => {
+                    setClearSharedSecret(false);
+                    setFormValues((v) => ({ ...v, sharedSecret: e.target.value }));
+                  }}
+                />
+                {editingId !== null && (
+                  <>
+                    <p className="mt-1 text-xs text-slate-300">
+                      Shared Secret: {currentEdit?.hasSharedSecret ? '••••• (Configured)' : 'Not set'}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">Enter a new value to replace the existing shared secret. Leave blank to keep the current value.</p>
+                    {currentEdit?.hasSharedSecret && (
+                      <button
+                        type="button"
+                        className="mt-1 rounded border border-amber-500/60 px-2 py-1 text-xs text-amber-200"
+                        onClick={() => {
+                          if (window.confirm('Clear the saved shared secret for this floodlight?')) {
+                            setFormValues((v) => ({ ...v, sharedSecret: '' }));
+                            setClearSharedSecret(true);
+                            showActionMessage('success', 'Shared secret will be cleared when you save.');
+                          }
+                        }}
+                      >
+                        Clear Shared Secret
+                      </button>
+                    )}
+                    {clearSharedSecret && (
+                      <p className="mt-1 text-xs text-amber-300">Shared secret is marked for removal. Save to apply.</p>
+                    )}
+                  </>
+                )}
               </label>
 
               <div className="rounded border border-slate-700 bg-slate-950/40 p-3 text-xs text-slate-300">
@@ -525,9 +720,9 @@ export function FloodlightsPage() {
                 <p><strong>Body:</strong> {'{}'}</p>
 
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(webhookUrl).then(() => setActionMessage({ type: 'success', text: 'Webhook URL copied' })).catch((err) => setActionMessage({ type: 'error', text: `Copy failed: ${getErrorMessage(err)}` }))}>Copy URL</button>
-                  <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(headerLine).then(() => setActionMessage({ type: 'success', text: 'Webhook header copied' })).catch((err) => setActionMessage({ type: 'error', text: `Copy failed: ${getErrorMessage(err)}` }))}>Copy Header</button>
-                  <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(curlExample).then(() => setActionMessage({ type: 'success', text: 'Webhook example copied' })).catch((err) => setActionMessage({ type: 'error', text: `Copy failed: ${getErrorMessage(err)}` }))}>Copy Full Example</button>
+                  <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(webhookUrl).then(() => showActionMessage('success', 'Webhook URL copied')).catch(() => showActionMessage('error', 'Copy failed. Please copy manually.'))}>Copy URL</button>
+                  <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(headerLine).then(() => showActionMessage('success', 'Webhook header copied')).catch(() => showActionMessage('error', 'Copy failed. Please copy manually.'))}>Copy Header</button>
+                  <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(curlExample).then(() => showActionMessage('success', 'Webhook example copied')).catch(() => showActionMessage('error', 'Copy failed. Please copy manually.'))}>Copy Full Example</button>
                 </div>
               </div>
             </Section>
@@ -539,7 +734,7 @@ export function FloodlightsPage() {
               </label>
 
               <label className="block">
-                <InfoLabel label="Auto Off" helpText="How long the light stays on after activation before turning off automatically." />
+                <InfoLabel label="Auto Off (seconds)" helpText="How long the light stays on after activation before turning off automatically." />
                 <input type="number" className={sharedInputClass} value={formValues.autoOffSeconds} onChange={(e) => setFormValues((v) => ({ ...v, autoOffSeconds: Number(e.target.value) }))} />
               </label>
 
@@ -557,11 +752,11 @@ export function FloodlightsPage() {
                   <p className="mt-1 text-xs text-slate-400">Default: reset_full_duration</p>
                 </label>
                 <label className="block">
-                  <InfoLabel label="Debounce" helpText="Ignores repeated triggers that occur too quickly." />
+                  <InfoLabel label="Debounce (seconds)" helpText="Ignores repeated triggers that occur too quickly." />
                   <input type="number" className={sharedInputClass} value={formValues.debounceSeconds} onChange={(e) => setFormValues((v) => ({ ...v, debounceSeconds: Number(e.target.value) }))} />
                 </label>
                 <label className="block">
-                  <InfoLabel label="Cooldown" helpText="Prevents new activations for a short period after a trigger." />
+                  <InfoLabel label="Cooldown (seconds)" helpText="Prevents new activations for a short period after a trigger." />
                   <input type="number" className={sharedInputClass} value={formValues.cooldownSeconds} onChange={(e) => setFormValues((v) => ({ ...v, cooldownSeconds: Number(e.target.value) }))} />
                 </label>
               </div>
@@ -603,11 +798,11 @@ export function FloodlightsPage() {
                 <>
                   <div className="grid grid-cols-2 gap-2">
                     <label>
-                      <span>sunsetOffsetMinutes</span>
+                      <span>Sunset Offset (minutes)</span>
                       <input type="number" className={sharedInputClass} value={formValues.sunsetOffsetMinutes} onChange={(e) => setFormValues((v) => ({ ...v, sunsetOffsetMinutes: Number(e.target.value) }))} />
                     </label>
                     <label>
-                      <span>sunriseOffsetMinutes</span>
+                      <span>Sunrise Offset (minutes)</span>
                       <input type="number" className={sharedInputClass} value={formValues.sunriseOffsetMinutes} onChange={(e) => setFormValues((v) => ({ ...v, sunriseOffsetMinutes: Number(e.target.value) }))} />
                     </label>
                   </div>
@@ -616,21 +811,27 @@ export function FloodlightsPage() {
               )}
             </Section>
 
-            <Section title="Test Mode & Overrides">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={formValues.testModeEnabled} onChange={(e) => setFormValues((v) => ({ ...v, testModeEnabled: e.target.checked }))} />
-                <InfoLabel label="Test Mode" helpText="Temporarily bypasses scheduling restrictions. Useful during installation and testing." />
-              </label>
+            <Section title="Operations Controls">
+              <div className="rounded border border-amber-700/40 bg-amber-950/20 p-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-300">Test Mode</p>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={formValues.testModeEnabled} onChange={(e) => setFormValues((v) => ({ ...v, testModeEnabled: e.target.checked }))} />
+                  <InfoLabel label="Bypass schedule restrictions" helpText="Temporarily bypasses scheduling restrictions. Useful during installation and testing." />
+                </label>
+              </div>
 
-              <label>
-                <InfoLabel label="Manual Override Mode" helpText={'Forces behavior regardless of automation:\n- force_on: always on\n- force_off: never activates\n- suspended: ignores automation temporarily'} />
-                <select className={sharedInputClass} value={formValues.manualOverrideMode} onChange={(e) => setFormValues((v) => ({ ...v, manualOverrideMode: e.target.value as ManualOverrideMode }))}>
-                  <option value="none">none</option>
-                  <option value="force_on">force_on</option>
-                  <option value="force_off">force_off</option>
-                  <option value="suspended">suspended</option>
-                </select>
-              </label>
+              <div className="rounded border border-sky-700/40 bg-sky-950/20 p-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-sky-300">Manual Override</p>
+                <label>
+                  <InfoLabel label="Manual Override Mode" helpText={'Forces behavior regardless of automation:\n- force_on: always on\n- force_off: never activates\n- suspended: ignores automation temporarily'} />
+                  <select className={sharedInputClass} value={formValues.manualOverrideMode} onChange={(e) => setFormValues((v) => ({ ...v, manualOverrideMode: e.target.value as ManualOverrideMode }))}>
+                    <option value="none">none</option>
+                    <option value="force_on">force_on</option>
+                    <option value="force_off">force_off</option>
+                    <option value="suspended">suspended</option>
+                  </select>
+                </label>
+              </div>
             </Section>
 
             <details className="rounded-lg border border-slate-700/80 bg-slate-900/70 p-3">
