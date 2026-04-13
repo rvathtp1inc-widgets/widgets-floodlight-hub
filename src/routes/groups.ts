@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { DateTime } from 'luxon';
 import { db } from '../db/client.js';
@@ -12,13 +12,24 @@ async function setMembers(groupId: number, ids: number[]) {
   }
 }
 
+function toPublicGroup(row: Record<string, unknown>) {
+  const { sharedSecretEncrypted, ...rest } = row;
+  return {
+    ...rest,
+    hasSharedSecret: Boolean(sharedSecretEncrypted),
+  };
+}
+
 export async function groupRoutes(app: FastifyInstance) {
-  app.get('/api/groups', async () => db.select().from(groups));
+  app.get('/api/groups', async () => {
+    const rows = await db.select().from(groups);
+    return rows.map((row) => toPublicGroup(row));
+  });
 
   app.post('/api/groups', async (request, reply) => {
     const body = request.body as {
       name: string; webhookKey: string; sharedSecret?: string; automationEnabled?: boolean; testModeEnabled?: boolean; testModeUntil?: string | null;
-      scheduleMode?: string; scheduleJson?: unknown; autoOffSeconds?: number; debounceSeconds?: number; cooldownSeconds?: number;
+      scheduleMode?: string; scheduleJson?: unknown; autoOffSeconds?: number; retriggerMode?: string; debounceSeconds?: number; cooldownSeconds?: number;
       memberFloodlightIds?: number[]; notes?: string;
     };
     if (!body.name || !body.webhookKey) return reply.code(400).send({ error: 'name and webhookKey required' });
@@ -32,13 +43,14 @@ export async function groupRoutes(app: FastifyInstance) {
       scheduleMode: body.scheduleMode ?? 'always',
       scheduleJson: JSON.stringify(body.scheduleJson ?? {}),
       autoOffSeconds: body.autoOffSeconds ?? 120,
+      retriggerMode: body.retriggerMode ?? 'reset_full_duration',
       debounceSeconds: body.debounceSeconds ?? 0,
       cooldownSeconds: body.cooldownSeconds ?? 0,
       notes: body.notes ?? null
     }).returning();
 
     await setMembers(inserted[0].id, body.memberFloodlightIds ?? []);
-    return inserted[0];
+    return toPublicGroup(inserted[0]);
   });
 
   app.get('/api/groups/:id', async (request, reply) => {
@@ -46,7 +58,7 @@ export async function groupRoutes(app: FastifyInstance) {
     const group = await db.query.groups.findFirst({ where: eq(groups.id, id) });
     if (!group) return reply.code(404).send({ error: 'not_found' });
     const members = await db.select().from(groupMemberships).where(eq(groupMemberships.groupId, id));
-    return { ...group, memberFloodlightIds: members.map((m) => m.floodlightId) };
+    return { ...toPublicGroup(group), memberFloodlightIds: members.map((m) => m.floodlightId) };
   });
 
   app.patch('/api/groups/:id', async (request, reply) => {
@@ -55,14 +67,18 @@ export async function groupRoutes(app: FastifyInstance) {
     const existing = await db.query.groups.findFirst({ where: eq(groups.id, id) });
     if (!existing) return reply.code(404).send({ error: 'not_found' });
     const updates: Record<string, unknown> = { updatedAt: DateTime.utc().toISO() };
-    for (const key of ['name', 'webhookKey', 'automationEnabled', 'testModeEnabled', 'testModeUntil', 'scheduleMode', 'autoOffSeconds', 'debounceSeconds', 'cooldownSeconds', 'notes']) {
+    for (const key of ['name', 'webhookKey', 'automationEnabled', 'testModeEnabled', 'testModeUntil', 'scheduleMode', 'autoOffSeconds', 'retriggerMode', 'debounceSeconds', 'cooldownSeconds', 'notes']) {
       if (body[key] !== undefined) updates[key] = body[key];
     }
     if (body.scheduleJson !== undefined) updates.scheduleJson = JSON.stringify(body.scheduleJson);
-    if (typeof body.sharedSecret === 'string') updates.sharedSecretEncrypted = encryptString(body.sharedSecret);
+    if (body.clearSharedSecret === true) {
+      updates.sharedSecretEncrypted = null;
+    } else if (typeof body.sharedSecret === 'string' && body.sharedSecret.trim().length > 0) {
+      updates.sharedSecretEncrypted = encryptString(body.sharedSecret);
+    }
     const out = await db.update(groups).set(updates).where(eq(groups.id, id)).returning();
     if (Array.isArray(body.memberFloodlightIds)) await setMembers(id, body.memberFloodlightIds as number[]);
-    return out[0];
+    return toPublicGroup(out[0]);
   });
 
   app.delete('/api/groups/:id', async (request) => {
