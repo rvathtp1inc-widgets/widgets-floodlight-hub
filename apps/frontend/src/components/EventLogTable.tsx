@@ -5,6 +5,8 @@ type EventFilter = 'all' | 'floodlight' | 'group' | 'accepted' | 'rejected';
 
 type EventLogTableProps = {
   events?: EventLogItem[];
+  searchText: string;
+  onSearchTextChange: (value: string) => void;
   isLoading: boolean;
   isError: boolean;
   errorMessage?: string;
@@ -21,6 +23,8 @@ function toDate(value?: string) {
 
 export function EventLogTable({
   events,
+  searchText,
+  onSearchTextChange,
   isLoading,
   isError,
   errorMessage,
@@ -29,29 +33,65 @@ export function EventLogTable({
 }: EventLogTableProps) {
   const [filter, setFilter] = useState<EventFilter>('all');
 
+  const normalizedSearch = searchText.trim().toLowerCase();
+
   const visibleEvents = useMemo(() => {
     const sorted = [...(events ?? [])].sort((a, b) => b.id - a.id).slice(0, 100);
-    if (filter === 'all') return sorted;
 
     return sorted.filter((item) => {
       if (filter === 'floodlight' || filter === 'group') {
-        return item.targetType === filter;
+        if (item.targetType !== filter) return false;
       }
       if (filter === 'accepted') {
-        return (item.decision ?? '').toLowerCase().includes('accept');
+        if (!(item.decision ?? '').toLowerCase().includes('accept')) return false;
       }
       if (filter === 'rejected') {
-        return (item.decision ?? '').toLowerCase().includes('reject');
+        if (!(item.decision ?? '').toLowerCase().includes('reject')) return false;
       }
+
+      if (!normalizedSearch) return true;
+      const haystack = [
+        item.targetName,
+        item.targetType,
+        item.targetId ? `#${item.targetId}` : null,
+        item.webhookKey,
+        item.remoteIp,
+        item.decisionReason,
+        item.authResult,
+        item.decision,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      if (!haystack.includes(normalizedSearch)) return false;
       return true;
     });
-  }, [events, filter]);
+  }, [events, filter, normalizedSearch]);
+
+  const resultPill = (decision?: string) => {
+    const normalized = (decision ?? '').toLowerCase();
+    if (normalized.includes('accept')) {
+      return <span className="inline-flex rounded border border-emerald-600/40 bg-emerald-900/50 px-2 py-0.5 text-xs font-semibold text-emerald-200">accepted</span>;
+    }
+    if (normalized.includes('reject')) {
+      return <span className="inline-flex rounded border border-red-600/40 bg-red-900/50 px-2 py-0.5 text-xs font-semibold text-red-200">rejected</span>;
+    }
+    return <span>{decision ?? '—'}</span>;
+  };
 
   return (
     <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-white">Event Log</h2>
         <div className="flex items-center gap-2">
+          <input
+            type="search"
+            value={searchText}
+            onChange={(event) => onSearchTextChange(event.target.value)}
+            placeholder="Filter by name, webhook, source, or reason"
+            className="w-72 max-w-full rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-sm text-slate-100 placeholder:text-slate-400"
+          />
           <select
             className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-sm text-slate-100"
             value={filter}
@@ -105,12 +145,12 @@ export function EventLogTable({
                   <td className="px-2 py-2 whitespace-nowrap">{toDate(item.receivedAt ?? item.createdAt)}</td>
                   <td className="px-2 py-2">{item.httpMethod ?? '—'}</td>
                   <td className="px-2 py-2">
-                    {item.targetType ?? 'unknown'}
-                    {item.targetId ? ` #${item.targetId}` : ''}
+                    {item.targetName ?? item.targetType ?? 'unknown'}
+                    {item.targetId ? <span className="ml-1 text-xs text-slate-400">(#{item.targetId})</span> : null}
                   </td>
                   <td className="px-2 py-2">{item.webhookKey ?? '—'}</td>
                   <td className="px-2 py-2">
-                    {item.decision ?? '—'}
+                    {resultPill(item.decision)}
                     {item.authResult ? ` / ${item.authResult}` : ''}
                   </td>
                   <td className="px-2 py-2">{item.decisionReason ?? '—'}</td>

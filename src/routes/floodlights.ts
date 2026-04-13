@@ -2,8 +2,9 @@ import { and, eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { DateTime } from 'luxon';
 import { db } from '../db/client.js';
-import { commandLogs, floodlights, groupMemberships } from '../db/schema.js';
+import { floodlights, groupMemberships } from '../db/schema.js';
 import { decryptString, encryptString } from '../lib/secrets.js';
+import { insertCommandLogWithRetention } from '../services/diagnostics/logRetentionService.js';
 import { shellyService } from '../services/shelly/shellyService.js';
 
 export async function floodlightRoutes(app: FastifyInstance) {
@@ -111,10 +112,10 @@ export async function floodlightRoutes(app: FastifyInstance) {
     try {
       const response = await shellyService.setOutput(light.shellyHost, light.shellyPort, light.relayId, on, password);
       await db.update(floodlights).set({ lastKnownOutput: on, lastCommandStatus: 'ok', updatedAt: DateTime.utc().toISO()! }).where(eq(floodlights.id, id));
-      await db.insert(commandLogs).values({ floodlightId: id, commandType: type, success: true, requestSummary, responseSummary: JSON.stringify(response) });
+      await insertCommandLogWithRetention({ floodlightId: id, commandType: type, success: true, requestSummary, responseSummary: JSON.stringify(response) });
       return { status: 200, body: { ok: true, response } };
     } catch (error) {
-      await db.insert(commandLogs).values({ floodlightId: id, commandType: type, success: false, requestSummary, errorText: (error as Error).message });
+      await insertCommandLogWithRetention({ floodlightId: id, commandType: type, success: false, requestSummary, errorText: (error as Error).message });
       return { status: 502, body: { error: 'command_failed', details: (error as Error).message } };
     }
   }
@@ -147,10 +148,10 @@ export async function floodlightRoutes(app: FastifyInstance) {
     const password = decryptString(light.shellyPasswordEncrypted ?? undefined);
     try {
       const cfg = await shellyService.standardizeConfig(light.shellyHost, light.shellyPort, light.relayId, password);
-      await db.insert(commandLogs).values({ floodlightId: id, commandType: 'standardize', success: true, responseSummary: JSON.stringify(cfg) });
+      await insertCommandLogWithRetention({ floodlightId: id, commandType: 'standardize', success: true, responseSummary: JSON.stringify(cfg) });
       return { ok: true, config: cfg };
     } catch (error) {
-      await db.insert(commandLogs).values({ floodlightId: id, commandType: 'standardize', success: false, errorText: (error as Error).message });
+      await insertCommandLogWithRetention({ floodlightId: id, commandType: 'standardize', success: false, errorText: (error as Error).message });
       return reply.code(502).send({ error: 'standardize_failed', details: (error as Error).message });
     }
   });

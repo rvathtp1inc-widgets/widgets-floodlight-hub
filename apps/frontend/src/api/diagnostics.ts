@@ -18,6 +18,7 @@ export type EventLogItem = {
   webhookKey?: string;
   targetType?: string | null;
   targetId?: number | null;
+  targetName?: string | null;
   httpMethod?: string;
   remoteIp?: string | null;
   headerSummary?: string | null;
@@ -32,6 +33,7 @@ export type CommandLogItem = {
   id: number;
   createdAt?: string;
   floodlightId?: number;
+  floodlightName?: string | null;
   commandType?: string;
   requestSummary?: string | null;
   responseSummary?: string | null;

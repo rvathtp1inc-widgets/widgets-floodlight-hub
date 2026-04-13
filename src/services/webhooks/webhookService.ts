@@ -1,8 +1,9 @@
 import { and, eq } from 'drizzle-orm';
 import { DateTime } from 'luxon';
 import { db } from '../../db/client.js';
-import { commandLogs, eventLogs, floodlights, groupMemberships, groups, hubSettings } from '../../db/schema.js';
+import { floodlights, groupMemberships, groups, hubSettings } from '../../db/schema.js';
 import { decryptString } from '../../lib/secrets.js';
+import { insertCommandLogWithRetention, insertEventLogWithRetention } from '../diagnostics/logRetentionService.js';
 import { evaluateFloodlightPolicy, evaluateGroupPolicy } from '../policy/policyService.js';
 import { shellyService } from '../shelly/shellyService.js';
 import { TimerService } from '../timers/timerService.js';
@@ -37,7 +38,7 @@ export async function handleGroupWebhook(input: {
         ? await evaluateGroupPolicy(group.id)
         : await evaluateFloodlightPolicy(floodlight!.id);
 
-  const event = await db.insert(eventLogs).values({
+  const event = await insertEventLogWithRetention({
     webhookKey: input.webhookKey,
     targetType,
     targetId,
@@ -48,7 +49,7 @@ export async function handleGroupWebhook(input: {
     authResult: authValid ? 'valid' : 'invalid',
     decision: decision.accepted ? 'accepted' : 'rejected',
     decisionReason: decision.reason
-  }).returning({ id: eventLogs.id });
+  });
 
   const activated: number[] = [];
   const skipped: Array<{ floodlightId: number; reason: string }> = [];
@@ -65,11 +66,11 @@ export async function handleGroupWebhook(input: {
       try {
         const response = await shellyService.setOutput(light.shellyHost, light.shellyPort, light.relayId, true, password);
         await db.update(floodlights).set({ lastKnownOutput: true, lastCommandStatus: 'ok', updatedAt: DateTime.utc().toISO()! }).where(eq(floodlights.id, light.id));
-        await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'on', success: true, responseSummary: JSON.stringify(response) });
+        await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'on', success: true, responseSummary: JSON.stringify(response) });
         activated.push(light.id);
       } catch (error) {
         skipped.push({ floodlightId: light.id, reason: 'command_failed' });
-        await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'on', success: false, errorText: (error as Error).message });
+        await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'on', success: false, errorText: (error as Error).message });
       }
     }
     await input.timerService.createOrRefreshGroupTimer(group.id, group.autoOffSeconds, event[0].id);
@@ -85,11 +86,11 @@ export async function handleGroupWebhook(input: {
         try {
           const response = await shellyService.setOutput(light.shellyHost, light.shellyPort, light.relayId, true, password);
           await db.update(floodlights).set({ lastKnownOutput: true, lastCommandStatus: 'ok', updatedAt: DateTime.utc().toISO()! }).where(eq(floodlights.id, light.id));
-          await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'on', success: true, responseSummary: JSON.stringify(response) });
+          await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'on', success: true, responseSummary: JSON.stringify(response) });
           activated.push(light.id);
         } catch (error) {
           skipped.push({ floodlightId: light.id, reason: 'command_failed' });
-          await db.insert(commandLogs).values({ floodlightId: light.id, commandType: 'on', success: false, errorText: (error as Error).message });
+          await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'on', success: false, errorText: (error as Error).message });
         }
       }
 

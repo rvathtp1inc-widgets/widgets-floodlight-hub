@@ -3,6 +3,7 @@ import type { CommandLogItem } from '../api/diagnostics';
 
 type CommandLogTableProps = {
   commands?: CommandLogItem[];
+  searchText: string;
   isLoading: boolean;
   isError: boolean;
   errorMessage?: string;
@@ -29,13 +30,33 @@ function statusPill(success?: boolean) {
 
 export function CommandLogTable({
   commands,
+  searchText,
   isLoading,
   isError,
   errorMessage,
   onRefresh,
   isRefreshing,
 }: CommandLogTableProps) {
-  const visibleCommands = useMemo(() => [...(commands ?? [])].sort((a, b) => b.id - a.id).slice(0, 100), [commands]);
+  const normalizedSearch = searchText.trim().toLowerCase();
+  const visibleCommands = useMemo(() => {
+    const sorted = [...(commands ?? [])].sort((a, b) => b.id - a.id).slice(0, 100);
+    if (!normalizedSearch) return sorted;
+
+    return sorted.filter((item) => {
+      const haystack = [
+        item.floodlightName,
+        item.floodlightId ? `#${item.floodlightId}` : null,
+        item.commandType,
+        item.requestSummary,
+        item.responseSummary,
+        item.errorText,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }, [commands, normalizedSearch]);
 
   return (
     <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-4">
@@ -79,7 +100,10 @@ export function CommandLogTable({
               {visibleCommands.map((item) => (
                 <tr key={item.id} className="border-t border-slate-800">
                   <td className="whitespace-nowrap px-2 py-2">{toDate(item.createdAt)}</td>
-                  <td className="px-2 py-2">floodlight #{item.floodlightId ?? '—'}</td>
+                  <td className="px-2 py-2">
+                    {item.floodlightName ?? 'floodlight'}
+                    {item.floodlightId ? <span className="ml-1 text-xs text-slate-400">(#{item.floodlightId})</span> : null}
+                  </td>
                   <td className="px-2 py-2">{item.commandType ?? '—'}</td>
                   <td className="px-2 py-2">{statusPill(item.success)}</td>
                   <td className="px-2 py-2">{item.requestSummary ?? '—'}</td>
