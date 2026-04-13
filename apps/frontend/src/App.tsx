@@ -1,6 +1,7 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { Dashboard } from './pages/Dashboard';
 import { FloodlightsPage } from './pages/Floodlights';
+import { GroupsPage } from './pages/Groups';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-semibold ${
@@ -18,12 +19,16 @@ export default function App() {
           <NavLink to="/floodlights" className={navLinkClass}>
             Floodlights
           </NavLink>
+          <NavLink to="/groups" className={navLinkClass}>
+            Groups
+          </NavLink>
         </nav>
       </header>
 
       <Routes>
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/floodlights" element={<FloodlightsPage />} />
+        <Route path="/groups" element={<GroupsPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </div>
