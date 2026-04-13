@@ -7,7 +7,19 @@ import { decryptString, encryptString } from '../lib/secrets.js';
 import { shellyService } from '../services/shelly/shellyService.js';
 
 export async function floodlightRoutes(app: FastifyInstance) {
-  app.get('/api/floodlights', async () => db.select().from(floodlights));
+  const toPublicFloodlight = (row: Record<string, unknown>) => {
+    const { sharedSecretEncrypted, shellyPasswordEncrypted, ...rest } = row;
+    return {
+      ...rest,
+      hasSharedSecret: Boolean(sharedSecretEncrypted),
+      hasShellyPassword: Boolean(shellyPasswordEncrypted),
+    };
+  };
+
+  app.get('/api/floodlights', async () => {
+    const rows = await db.select().from(floodlights);
+    return rows.map((row) => toPublicFloodlight(row));
+  });
 
   app.post('/api/floodlights', async (request, reply) => {
     const body = request.body as {
@@ -47,14 +59,14 @@ export async function floodlightRoutes(app: FastifyInstance) {
       lastKnownOutput: Boolean((status as Record<string, unknown>).output)
     }).returning();
 
-    return { floodlight: inserted[0], status, config: cfg };
+    return { floodlight: toPublicFloodlight(inserted[0]), status, config: cfg };
   });
 
   app.get('/api/floodlights/:id', async (request, reply) => {
     const id = Number((request.params as { id: string }).id);
     const row = await db.query.floodlights.findFirst({ where: eq(floodlights.id, id) });
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    return row;
+    return toPublicFloodlight(row);
   });
 
   app.patch('/api/floodlights/:id', async (request, reply) => {
@@ -70,10 +82,19 @@ export async function floodlightRoutes(app: FastifyInstance) {
       if (body[key] !== undefined) updates[key] = body[key];
     }
     if (body.scheduleJson !== undefined) updates.scheduleJson = JSON.stringify(body.scheduleJson);
-    if (typeof body.password === 'string') updates.shellyPasswordEncrypted = encryptString(body.password);
-    if (typeof body.sharedSecret === 'string') updates.sharedSecretEncrypted = encryptString(body.sharedSecret);
+    if (body.clearShellyPassword === true) {
+      updates.shellyPasswordEncrypted = null;
+    } else if (typeof body.password === 'string' && body.password.trim().length > 0) {
+      updates.shellyPasswordEncrypted = encryptString(body.password);
+    }
+
+    if (body.clearSharedSecret === true) {
+      updates.sharedSecretEncrypted = null;
+    } else if (typeof body.sharedSecret === 'string' && body.sharedSecret.trim().length > 0) {
+      updates.sharedSecretEncrypted = encryptString(body.sharedSecret);
+    }
     const out = await db.update(floodlights).set(updates).where(eq(floodlights.id, id)).returning();
-    return out[0];
+    return toPublicFloodlight(out[0]);
   });
 
   app.delete('/api/floodlights/:id', async (request) => {
