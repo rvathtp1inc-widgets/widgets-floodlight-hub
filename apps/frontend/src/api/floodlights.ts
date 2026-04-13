@@ -16,7 +16,7 @@ export type Floodlight = {
 };
 
 const api = axios.create({
-  baseURL: 'http://localhost:3000',
+  baseURL: '',
 });
 
 export async function fetchFloodlights(): Promise<Floodlight[]> {
