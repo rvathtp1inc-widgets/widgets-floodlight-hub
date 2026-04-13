@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
 import {
   parseScheduleJson,
   type Floodlight,
@@ -41,6 +43,12 @@ type FloodlightFormValues = {
   advancedScheduleJson: string;
 };
 
+type ActionMessage = { type: 'success' | 'error'; text: string } | null;
+
+type HubSettings = {
+  defaultWebhookHeaderName?: string;
+};
+
 const defaultFormValues: FloodlightFormValues = {
   name: '',
   shellyHost: '',
@@ -57,13 +65,20 @@ const defaultFormValues: FloodlightFormValues = {
   debounceSeconds: 0,
   cooldownSeconds: 0,
   testModeEnabled: false,
-  scheduleMode: 'always',
+  scheduleMode: 'sunset_to_sunrise',
   fixedWindowStart: '22:00',
   fixedWindowEnd: '06:00',
   sunsetOffsetMinutes: -30,
   sunriseOffsetMinutes: 30,
   advancedScheduleJson: '{}',
 };
+
+const retriggerModeOptions = [
+  { value: 'reset_full_duration', label: 'reset_full_duration (recommended)' },
+  { value: 'ignore_while_on', label: 'ignore_while_on' },
+];
+
+const sharedInputClass = 'mt-1 w-full rounded bg-slate-800 px-2 py-1';
 
 function buildScheduleJson(values: FloodlightFormValues): Record<string, unknown> {
   if (values.scheduleMode === 'fixed_window') {
@@ -140,8 +155,88 @@ function mapFloodlightToFormValues(floodlight: Floodlight): FloodlightFormValues
   };
 }
 
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
+function generateUniqueWebhookKey(
+  baseName: string,
+  floodlights: Floodlight[] | undefined,
+  editingId: number | null,
+): string {
+  const base = slugify(baseName) || 'floodlight';
+  const existing = new Set(
+    (floodlights ?? [])
+      .filter((item) => item.id !== editingId)
+      .map((item) => item.webhookKey)
+      .filter((key): key is string => Boolean(key)),
+  );
+
+  if (!existing.has(base)) {
+    return base;
+  }
+
+  let next = 1;
+  while (existing.has(`${base}-${next}`)) {
+    next += 1;
+  }
+
+  return `${base}-${next}`;
+}
+
+function InfoLabel({ label, helpText }: { label: string; helpText?: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span>{label}</span>
+      {helpText && (
+        <span
+          title={helpText}
+          aria-label={helpText}
+          className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-500 text-[10px] font-semibold text-slate-300"
+        >
+          i
+        </span>
+      )}
+    </span>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-lg border border-slate-700/80 bg-slate-900/70 p-3">
+      <h3 className="mb-2 text-sm font-semibold text-white">{title}</h3>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+async function copyToClipboard(value: string): Promise<void> {
+  await navigator.clipboard.writeText(value);
+}
+
+function getErrorMessage(error: unknown): string {
+  const axiosError = error as AxiosError<{ message?: string; error?: string }>;
+  return axiosError.response?.data?.message ?? axiosError.response?.data?.error ?? (error instanceof Error ? error.message : 'Unknown error');
+}
+
 export function FloodlightsPage() {
   const { data, isLoading, isError, error } = useFloodlights();
+  const settingsQuery = useQuery({
+    queryKey: ['hub-settings'],
+    queryFn: async (): Promise<HubSettings> => {
+      const response = await fetch('/api/settings');
+      if (!response.ok) {
+        throw new Error('Failed to load settings');
+      }
+      return (await response.json()) as HubSettings;
+    },
+  });
+
   const createMutation = useCreateFloodlight();
   const updateMutation = useUpdateFloodlight();
   const deleteMutation = useDeleteFloodlight();
@@ -152,6 +247,22 @@ export function FloodlightsPage() {
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formValues, setFormValues] = useState<FloodlightFormValues>(defaultFormValues);
+  const [webhookManuallyEdited, setWebhookManuallyEdited] = useState(false);
+  const [actionMessage, setActionMessage] = useState<ActionMessage>(null);
+
+  useEffect(() => {
+    if (webhookManuallyEdited) {
+      return;
+    }
+
+    setFormValues((current) => {
+      const suggested = generateUniqueWebhookKey(current.name, data, editingId);
+      if (current.webhookKey === suggested) {
+        return current;
+      }
+      return { ...current, webhookKey: suggested };
+    });
+  }, [formValues.name, data, editingId, webhookManuallyEdited]);
 
   useEffect(() => {
     setFormValues((current) => ({
@@ -167,27 +278,43 @@ export function FloodlightsPage() {
     [data, editingId],
   );
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  const headerName = settingsQuery.data?.defaultWebhookHeaderName || 'X-Widgets-Secret';
+  const webhookUrl = `/api/webhooks/unifi/${formValues.webhookKey || '{webhookKey}'}`;
+  const headerLine = `${headerName}: ${formValues.sharedSecret || '{sharedSecret}'}`;
+  const curlExample = `curl -X POST '${webhookUrl}' -H '${headerLine}' -H 'Content-Type: application/json' -d '{}'`;
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setActionMessage(null);
+
     const payload = normalizeFormValues(formValues);
 
-    if (editingId === null) {
-      await createMutation.mutateAsync(payload);
-      setFormValues(defaultFormValues);
-      return;
+    try {
+      if (editingId === null) {
+        await createMutation.mutateAsync(payload);
+        setFormValues(defaultFormValues);
+        setWebhookManuallyEdited(false);
+      } else {
+        await updateMutation.mutateAsync({ id: editingId, input: payload });
+      }
+      setActionMessage({ type: 'success', text: 'Floodlight saved successfully' });
+    } catch (mutationError) {
+      setActionMessage({ type: 'error', text: `Save failed: ${getErrorMessage(mutationError)}` });
     }
-
-    await updateMutation.mutateAsync({ id: editingId, input: payload });
   }
 
   function startCreate() {
     setEditingId(null);
     setFormValues(defaultFormValues);
+    setWebhookManuallyEdited(false);
+    setActionMessage(null);
   }
 
   function startEdit(floodlight: Floodlight) {
     setEditingId(floodlight.id);
     setFormValues(mapFloodlightToFormValues(floodlight));
+    setWebhookManuallyEdited(true);
+    setActionMessage(null);
   }
 
   return (
@@ -196,6 +323,18 @@ export function FloodlightsPage() {
         <h1 className="text-2xl font-bold text-white">Floodlights Admin</h1>
         <p className="text-sm text-slate-400">Installer-focused configuration and service actions.</p>
       </header>
+
+      {actionMessage && (
+        <p
+          className={`rounded-md border p-3 text-sm ${
+            actionMessage.type === 'success'
+              ? 'border-emerald-500/40 bg-emerald-900/30 text-emerald-200'
+              : 'border-red-600/40 bg-red-950/40 text-red-200'
+          }`}
+        >
+          {actionMessage.text}
+        </p>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[2fr,1fr]">
         <div className="space-y-4">
@@ -253,19 +392,48 @@ export function FloodlightsPage() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => testMutation.mutate(floodlight.id)}
+                    onClick={async () => {
+                      try {
+                        const result = await testMutation.mutateAsync(floodlight.id);
+                        setActionMessage({
+                          type: result.ok ? 'success' : 'error',
+                          text: result.ok
+                            ? `Connectivity test succeeded for ${floodlight.name}`
+                            : `Connectivity test failed for ${floodlight.name}: ${result.error ?? 'unknown error'}`,
+                        });
+                      } catch (mutationError) {
+                        setActionMessage({
+                          type: 'error',
+                          text: `Connectivity test failed for ${floodlight.name}: ${getErrorMessage(mutationError)}`,
+                        });
+                      }
+                    }}
                     className="rounded border border-slate-500 px-2 py-1 text-xs"
                   >
                     Test Connectivity
                   </button>
                   <button
                     type="button"
-                    onClick={() => standardizeMutation.mutate(floodlight.id)}
+                    onClick={async () => {
+                      try {
+                        const result = await standardizeMutation.mutateAsync(floodlight.id);
+                        setActionMessage({
+                          type: result.ok ? 'success' : 'error',
+                          text: result.ok
+                            ? `Standardize config succeeded for ${floodlight.name}`
+                            : `Standardize config failed for ${floodlight.name}`,
+                        });
+                      } catch (mutationError) {
+                        setActionMessage({
+                          type: 'error',
+                          text: `Standardize config failed for ${floodlight.name}: ${getErrorMessage(mutationError)}`,
+                        });
+                      }
+                    }}
                     className="rounded border border-slate-500 px-2 py-1 text-xs"
                   >
                     Standardize Config
                   </button>
-                  {/* TODO: If backend service actions change, wire additional buttons to the real route handlers. */}
                 </div>
               </article>
             ))}
@@ -289,133 +457,191 @@ export function FloodlightsPage() {
           )}
 
           <form className="space-y-3 text-sm" onSubmit={handleSubmit}>
-            <label className="block">
-              <span>Name</span>
-              <input className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.name} onChange={(e) => setFormValues((v) => ({ ...v, name: e.target.value }))} required />
-            </label>
-
-            <label className="block">
-              <span>Shelly Host</span>
-              <input className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.shellyHost} onChange={(e) => setFormValues((v) => ({ ...v, shellyHost: e.target.value }))} required />
-            </label>
-
-            <div className="grid grid-cols-3 gap-2">
+            <Section title="Identity">
               <label className="block">
-                <span>Shelly Port</span>
-                <input type="number" className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.shellyPort} onChange={(e) => setFormValues((v) => ({ ...v, shellyPort: Number(e.target.value) }))} />
+                <InfoLabel label="Name" />
+                <input className={sharedInputClass} value={formValues.name} onChange={(e) => setFormValues((v) => ({ ...v, name: e.target.value }))} required />
               </label>
+            </Section>
+
+            <Section title="Shelly Device Configuration">
               <label className="block">
-                <span>Relay ID</span>
-                <input type="number" className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.relayId} onChange={(e) => setFormValues((v) => ({ ...v, relayId: Number(e.target.value) }))} />
+                <InfoLabel label="Shelly Host" helpText="IP address of the Shelly device on the local network. This is where the hub sends control commands." />
+                <input className={sharedInputClass} value={formValues.shellyHost} onChange={(e) => setFormValues((v) => ({ ...v, shellyHost: e.target.value }))} required />
               </label>
-              <label className="block">
-                <span>Auto Off (s)</span>
-                <input type="number" className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.autoOffSeconds} onChange={(e) => setFormValues((v) => ({ ...v, autoOffSeconds: Number(e.target.value) }))} />
-              </label>
-            </div>
 
-            <label className="block">
-              <span>Webhook Key</span>
-              <input className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.webhookKey} onChange={(e) => setFormValues((v) => ({ ...v, webhookKey: e.target.value }))} />
-            </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <InfoLabel label="Shelly Port" helpText="Network port used by the Shelly device. Default is 80 unless changed in Shelly settings." />
+                  <input type="number" className={sharedInputClass} value={formValues.shellyPort} onChange={(e) => setFormValues((v) => ({ ...v, shellyPort: Number(e.target.value) }))} />
+                  <p className="mt-1 text-xs text-slate-400">Default: 80</p>
+                </label>
+                <label className="block">
+                  <InfoLabel label="Shelly Relay ID" helpText="Relay/output index on the Shelly device. For most Shelly 1 Mini devices, this is 0." />
+                  <input type="number" className={sharedInputClass} value={formValues.relayId} onChange={(e) => setFormValues((v) => ({ ...v, relayId: Number(e.target.value) }))} />
+                  <p className="mt-1 text-xs text-slate-400">Default: 0</p>
+                </label>
+              </div>
 
-            <label className="block">
-              <span>Shared Secret</span>
-              <input className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.sharedSecret} onChange={(e) => setFormValues((v) => ({ ...v, sharedSecret: e.target.value }))} />
-            </label>
-
-            <label className="block">
-              <span>Shelly Password</span>
-              <input type="password" className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.shellyPassword} onChange={(e) => setFormValues((v) => ({ ...v, shellyPassword: e.target.value }))} />
-            </label>
-
-            <div className="grid grid-cols-2 gap-2">
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={formValues.authEnabled} onChange={(e) => setFormValues((v) => ({ ...v, authEnabled: e.target.checked }))} />
-                Auth Enabled
+                <InfoLabel label="Shelly Auth Enabled" helpText="Enable if the Shelly device requires authentication. This setting must match the device configuration." />
               </label>
+
+              <label className="block">
+                <InfoLabel label="Shelly Password" helpText="Password used for Shelly authentication. Leave blank if authentication is disabled." />
+                <input type="password" className={sharedInputClass} value={formValues.shellyPassword} onChange={(e) => setFormValues((v) => ({ ...v, shellyPassword: e.target.value }))} />
+              </label>
+            </Section>
+
+            <Section title="Webhook & Authentication">
+              <label className="block">
+                <InfoLabel label="Webhook Key" helpText="Unique identifier used in the webhook URL. External systems use this to trigger this floodlight." />
+                <input
+                  className={sharedInputClass}
+                  value={formValues.webhookKey}
+                  onChange={(e) => {
+                    setWebhookManuallyEdited(true);
+                    setFormValues((v) => ({ ...v, webhookKey: slugify(e.target.value) }));
+                  }}
+                />
+                <p className="mt-1 text-xs text-slate-400">Auto-suggested from name; you can override.</p>
+              </label>
+
+              <label className="block">
+                <InfoLabel label="Shared Secret" helpText="A secret value that external systems must include in the request header. The Widgets UF-Hub will reject requests that do not include this value." />
+                <input className={sharedInputClass} value={formValues.sharedSecret} onChange={(e) => setFormValues((v) => ({ ...v, sharedSecret: e.target.value }))} />
+              </label>
+
+              <div className="rounded border border-slate-700 bg-slate-950/40 p-3 text-xs text-slate-300">
+                <h4 className="mb-2 text-sm font-semibold text-white">Direct Trigger Integration</h4>
+                <p className="mb-2 text-slate-400">
+                  This endpoint allows external systems (such as UniFi Protect) to trigger this floodlight. The hub evaluates schedule, test mode, debounce, cooldown, overrides, and timers before activation.
+                </p>
+                <p><strong>Method:</strong> POST</p>
+                <p><strong>URL:</strong> {webhookUrl}</p>
+                <p><strong>Header Name:</strong> {headerName}</p>
+                <p><strong>Header Value:</strong> {formValues.sharedSecret || '{sharedSecret}'}</p>
+                <p><strong>Body:</strong> {'{}'}</p>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(webhookUrl).then(() => setActionMessage({ type: 'success', text: 'Webhook URL copied' })).catch((err) => setActionMessage({ type: 'error', text: `Copy failed: ${getErrorMessage(err)}` }))}>Copy URL</button>
+                  <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(headerLine).then(() => setActionMessage({ type: 'success', text: 'Webhook header copied' })).catch((err) => setActionMessage({ type: 'error', text: `Copy failed: ${getErrorMessage(err)}` }))}>Copy Header</button>
+                  <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(curlExample).then(() => setActionMessage({ type: 'success', text: 'Webhook example copied' })).catch((err) => setActionMessage({ type: 'error', text: `Copy failed: ${getErrorMessage(err)}` }))}>Copy Full Example</button>
+                </div>
+              </div>
+            </Section>
+
+            <Section title="Automation & Timers">
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={formValues.automationEnabled} onChange={(e) => setFormValues((v) => ({ ...v, automationEnabled: e.target.checked }))} />
-                Automation Enabled
+                <InfoLabel label="Automation Enabled" helpText="When disabled, this floodlight will ignore all automated triggers." />
               </label>
+
+              <label className="block">
+                <InfoLabel label="Auto Off" helpText="How long the light stays on after activation before turning off automatically." />
+                <input type="number" className={sharedInputClass} value={formValues.autoOffSeconds} onChange={(e) => setFormValues((v) => ({ ...v, autoOffSeconds: Number(e.target.value) }))} />
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <InfoLabel label="Retrigger Mode" helpText="Defines behavior when a new trigger occurs while the light is already on. Default resets the timer." />
+                  <select className={sharedInputClass} value={formValues.retriggerMode} onChange={(e) => setFormValues((v) => ({ ...v, retriggerMode: e.target.value }))}>
+                    {retriggerModeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                    {!retriggerModeOptions.some((option) => option.value === formValues.retriggerMode) && (
+                      <option value={formValues.retriggerMode}>{formValues.retriggerMode}</option>
+                    )}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-400">Default: reset_full_duration</p>
+                </label>
+                <label className="block">
+                  <InfoLabel label="Debounce" helpText="Ignores repeated triggers that occur too quickly." />
+                  <input type="number" className={sharedInputClass} value={formValues.debounceSeconds} onChange={(e) => setFormValues((v) => ({ ...v, debounceSeconds: Number(e.target.value) }))} />
+                </label>
+                <label className="block">
+                  <InfoLabel label="Cooldown" helpText="Prevents new activations for a short period after a trigger." />
+                  <input type="number" className={sharedInputClass} value={formValues.cooldownSeconds} onChange={(e) => setFormValues((v) => ({ ...v, cooldownSeconds: Number(e.target.value) }))} />
+                </label>
+              </div>
+            </Section>
+
+            <Section title="Scheduling">
+              <label className="block">
+                <InfoLabel label="Schedule Mode" helpText="Defines when this floodlight is allowed to respond to events." />
+                <select className={sharedInputClass} value={formValues.scheduleMode} onChange={(e) => setFormValues((v) => ({ ...v, scheduleMode: e.target.value as ScheduleMode }))}>
+                  <option value="always">always</option>
+                  <option value="fixed_window">fixed_window</option>
+                  <option value="sunset_to_sunrise">sunset_to_sunrise</option>
+                  <option value="astro_offset">astro_offset</option>
+                </select>
+                <p className="mt-1 text-xs text-slate-400">Default: sunset_to_sunrise</p>
+              </label>
+
+              {formValues.scheduleMode === 'fixed_window' && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label>
+                      <span>Start time</span>
+                      <input type="time" className={sharedInputClass} value={formValues.fixedWindowStart} onChange={(e) => setFormValues((v) => ({ ...v, fixedWindowStart: e.target.value }))} />
+                    </label>
+                    <label>
+                      <span>End time</span>
+                      <input type="time" className={sharedInputClass} value={formValues.fixedWindowEnd} onChange={(e) => setFormValues((v) => ({ ...v, fixedWindowEnd: e.target.value }))} />
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-400">Overnight windows supported (e.g., 22:00 → 06:00)</p>
+                </>
+              )}
+
+              {formValues.scheduleMode === 'sunset_to_sunrise' && (
+                <p className="text-xs text-slate-400">Uses hub location settings (latitude, longitude, timezone).</p>
+              )}
+
+              {formValues.scheduleMode === 'astro_offset' && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label>
+                      <span>sunsetOffsetMinutes</span>
+                      <input type="number" className={sharedInputClass} value={formValues.sunsetOffsetMinutes} onChange={(e) => setFormValues((v) => ({ ...v, sunsetOffsetMinutes: Number(e.target.value) }))} />
+                    </label>
+                    <label>
+                      <span>sunriseOffsetMinutes</span>
+                      <input type="number" className={sharedInputClass} value={formValues.sunriseOffsetMinutes} onChange={(e) => setFormValues((v) => ({ ...v, sunriseOffsetMinutes: Number(e.target.value) }))} />
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-400">Uses hub location settings (latitude, longitude, timezone).</p>
+                </>
+              )}
+            </Section>
+
+            <Section title="Test Mode & Overrides">
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={formValues.testModeEnabled} onChange={(e) => setFormValues((v) => ({ ...v, testModeEnabled: e.target.checked }))} />
-                Test Mode Enabled
+                <InfoLabel label="Test Mode" helpText="Temporarily bypasses scheduling restrictions. Useful during installation and testing." />
               </label>
-            </div>
 
-            <p className="rounded border border-amber-700/40 bg-amber-950/30 p-2 text-xs text-amber-200">
-              Test Mode bypasses scheduling restrictions, but auth/debounce/cooldown/overrides/timers still apply.
-            </p>
-
-            <div className="grid grid-cols-2 gap-2">
               <label>
-                <span>Manual Override</span>
-                <select className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.manualOverrideMode} onChange={(e) => setFormValues((v) => ({ ...v, manualOverrideMode: e.target.value as ManualOverrideMode }))}>
+                <InfoLabel label="Manual Override Mode" helpText={'Forces behavior regardless of automation:\n- force_on: always on\n- force_off: never activates\n- suspended: ignores automation temporarily'} />
+                <select className={sharedInputClass} value={formValues.manualOverrideMode} onChange={(e) => setFormValues((v) => ({ ...v, manualOverrideMode: e.target.value as ManualOverrideMode }))}>
                   <option value="none">none</option>
                   <option value="force_on">force_on</option>
                   <option value="force_off">force_off</option>
                   <option value="suspended">suspended</option>
                 </select>
               </label>
-              <label>
-                <span>Retrigger Mode</span>
-                <input className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.retriggerMode} onChange={(e) => setFormValues((v) => ({ ...v, retriggerMode: e.target.value }))} />
-              </label>
-              <label>
-                <span>Debounce (s)</span>
-                <input type="number" className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.debounceSeconds} onChange={(e) => setFormValues((v) => ({ ...v, debounceSeconds: Number(e.target.value) }))} />
-              </label>
-              <label>
-                <span>Cooldown (s)</span>
-                <input type="number" className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.cooldownSeconds} onChange={(e) => setFormValues((v) => ({ ...v, cooldownSeconds: Number(e.target.value) }))} />
-              </label>
-            </div>
+            </Section>
 
-            <label>
-              <span>Schedule Mode</span>
-              <select className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.scheduleMode} onChange={(e) => setFormValues((v) => ({ ...v, scheduleMode: e.target.value as ScheduleMode }))}>
-                <option value="always">always</option>
-                <option value="fixed_window">fixed_window</option>
-                <option value="sunset_to_sunrise">sunset_to_sunrise</option>
-                <option value="astro_offset">astro_offset</option>
-              </select>
-            </label>
-
-            {formValues.scheduleMode === 'fixed_window' && (
-              <div className="grid grid-cols-2 gap-2">
+            <details className="rounded-lg border border-slate-700/80 bg-slate-900/70 p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-white">Advanced / Debug Only — not required for normal setup</summary>
+              <div className="mt-3 space-y-2">
                 <label>
-                  <span>Start</span>
-                  <input type="time" className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.fixedWindowStart} onChange={(e) => setFormValues((v) => ({ ...v, fixedWindowStart: e.target.value }))} />
-                </label>
-                <label>
-                  <span>End</span>
-                  <input type="time" className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.fixedWindowEnd} onChange={(e) => setFormValues((v) => ({ ...v, fixedWindowEnd: e.target.value }))} />
+                  <span>Advanced / Debug Only</span>
+                  <textarea className="mt-1 h-24 w-full rounded bg-slate-800 px-2 py-1 font-mono text-xs" value={formValues.advancedScheduleJson} onChange={(e) => setFormValues((v) => ({ ...v, advancedScheduleJson: e.target.value }))} />
                 </label>
               </div>
-            )}
-
-            {formValues.scheduleMode === 'astro_offset' && (
-              <div className="grid grid-cols-2 gap-2">
-                <label>
-                  <span>Sunset Offset (min)</span>
-                  <input type="number" className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.sunsetOffsetMinutes} onChange={(e) => setFormValues((v) => ({ ...v, sunsetOffsetMinutes: Number(e.target.value) }))} />
-                </label>
-                <label>
-                  <span>Sunrise Offset (min)</span>
-                  <input type="number" className="mt-1 w-full rounded bg-slate-800 px-2 py-1" value={formValues.sunriseOffsetMinutes} onChange={(e) => setFormValues((v) => ({ ...v, sunriseOffsetMinutes: Number(e.target.value) }))} />
-                </label>
-              </div>
-            )}
-
-            {(formValues.scheduleMode === 'sunset_to_sunrise' || formValues.scheduleMode === 'astro_offset') && (
-              <p className="text-xs text-slate-400">Astro-based modes require Settings latitude/longitude/timezone or backend may return <code>astro_config_missing</code>.</p>
-            )}
-
-            <label>
-              <span>Advanced scheduleJson</span>
-              <textarea className="mt-1 h-24 w-full rounded bg-slate-800 px-2 py-1 font-mono text-xs" value={formValues.advancedScheduleJson} onChange={(e) => setFormValues((v) => ({ ...v, advancedScheduleJson: e.target.value }))} />
-            </label>
+            </details>
 
             <button
               type="submit"
