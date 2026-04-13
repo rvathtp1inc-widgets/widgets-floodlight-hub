@@ -2,6 +2,7 @@ import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { Dashboard } from './pages/Dashboard';
 import { FloodlightsPage } from './pages/Floodlights';
 import { GroupsPage } from './pages/Groups';
+import { DiagnosticsPage } from './pages/DiagnosticsPage';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-semibold ${
@@ -22,6 +23,9 @@ export default function App() {
           <NavLink to="/groups" className={navLinkClass}>
             Groups
           </NavLink>
+          <NavLink to="/diagnostics" className={navLinkClass}>
+            Diagnostics
+          </NavLink>
         </nav>
       </header>
 
@@ -29,6 +33,7 @@ export default function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/floodlights" element={<FloodlightsPage />} />
         <Route path="/groups" element={<GroupsPage />} />
+        <Route path="/diagnostics" element={<DiagnosticsPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </div>
