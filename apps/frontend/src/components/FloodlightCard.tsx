@@ -2,8 +2,8 @@ import type { Floodlight } from '../api/floodlights';
 
 type FloodlightCardProps = {
   floodlight: Floodlight;
-  onTurnOn: (id: string) => void;
-  onTurnOff: (id: string) => void;
+  onTurnOn: (id: number) => void;
+  onTurnOff: (id: number) => void;
   isMutating: boolean;
 };
 
@@ -48,8 +48,8 @@ export function FloodlightCard({
         {floodlight.testModeEnabled && (
           <StatusBadge label="Test Mode" className="bg-amber-500/20 text-amber-300" />
         )}
-        {floodlight.manualOverrideMode && (
-          <StatusBadge label="Manual Override" className="bg-amber-500/20 text-amber-300" />
+        {floodlight.manualOverrideMode !== 'none' && (
+          <StatusBadge label={`Override: ${floodlight.manualOverrideMode}`} className="bg-amber-500/20 text-amber-300" />
         )}
       </div>
 
