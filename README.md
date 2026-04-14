@@ -56,6 +56,37 @@ Server defaults to `http://0.0.0.0:8787`.
 - `APP_ENCRYPTION_KEY`: used for encrypted Shelly passwords/shared webhook secret
 - `TIMER_POLL_SECONDS`: timer loop poll interval
 - `REQUEST_TIMEOUT_MS`: Shelly RPC timeout
+- `FLOODLIGHT_HUB_CONFIG_PATH`: optional override for provisioning config path. Default: `/usr/local/widgets-data/floodlighthub.json`
+
+## Cloud provisioning config
+Cloud bootstrap and heartbeat are configured with a JSON file, not SQLite. Default path:
+
+```text
+/usr/local/widgets-data/floodlighthub.json
+```
+
+Template:
+
+```json
+{
+  "device": {
+    "serialNumber": "",
+    "deviceSecret": "",
+    "model": "widgets-floodlight-hub"
+  },
+  "cloud": {
+    "enabled": true,
+    "apiBaseUrl": "https://api.widgetsinc.io",
+    "heartbeatIntervalSeconds": 60
+  }
+}
+```
+
+Notes:
+- If the file is missing or device identity is blank, the app logs the condition and continues normal local startup.
+- Cloud failures do not block local floodlight, group, timer, or webhook behavior.
+- A template is included at `config/floodlighthub.template.json`.
+- A lightweight provisioning helper is included at `scripts/provision-floodlighthub-config.sh`.
 
 ## Raspberry Pi deployment notes
 - Use a dedicated user account and static local IP.

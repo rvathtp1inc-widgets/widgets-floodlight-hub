@@ -1,0 +1,12 @@
+{
+  "device": {
+    "serialNumber": "WH-DEVICE-SERIAL",
+    "deviceSecret": "replace-with-device-secret",
+    "model": "widgets-floodlight-hub"
+  },
+  "cloud": {
+    "enabled": true,
+    "apiBaseUrl": "https://api.widgetsinc.io",
+    "heartbeatIntervalSeconds": 60
+  }
+}

@@ -9,6 +9,7 @@ import { groupRoutes } from './routes/groups.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { settingsRoutes } from './routes/settings.js';
 import { diagnosticsRoutes } from './routes/diagnostics.js';
+import { CloudSyncService } from './services/cloud/cloudSyncService.js';
 import { TimerService } from './services/timers/timerService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,6 +21,11 @@ const frontendDistPath = path.resolve(__dirname, '../apps/frontend/dist');
 export function buildApp() {
   const app = Fastify({ logger: true });
   const timerService = new TimerService();
+  const cloudSyncService = new CloudSyncService(config.cloud, config.device, app.log);
+
+  for (const warning of config.configWarnings) {
+    app.log.warn(warning);
+  }
 
   app.register(fastifyStatic, {
     root: frontendDistPath,
@@ -32,7 +38,7 @@ export function buildApp() {
     await groupRoutes(instance);
     await webhookRoutes(instance, timerService);
     await settingsRoutes(instance);
-    await diagnosticsRoutes(instance, timerService);
+    await diagnosticsRoutes(instance, timerService, cloudSyncService);
   });
 
   // Optional API root; move it off "/" so frontend can own "/"
@@ -53,10 +59,12 @@ export function buildApp() {
   app.addHook('onReady', async () => {
     rawDb.prepare('SELECT 1').get();
     timerService.start(config.timerPollSeconds);
+    cloudSyncService.start();
   });
 
   app.addHook('onClose', async () => {
     timerService.stop();
+    cloudSyncService.stop();
   });
 
   return app;

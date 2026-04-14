@@ -2,9 +2,10 @@ import { count, desc, eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { db } from '../db/client.js';
 import { activeTimers, commandLogs, eventLogs, floodlights, groups } from '../db/schema.js';
+import { CloudSyncService } from '../services/cloud/cloudSyncService.js';
 import { TimerService } from '../services/timers/timerService.js';
 
-export async function diagnosticsRoutes(app: FastifyInstance, timerService: TimerService) {
+export async function diagnosticsRoutes(app: FastifyInstance, timerService: TimerService, cloudSyncService: CloudSyncService) {
   app.get('/api/events', async () => {
     const [events, floodlightRows, groupRows] = await Promise.all([
       db.select().from(eventLogs).orderBy(desc(eventLogs.id)).limit(200),
@@ -51,6 +52,8 @@ export async function diagnosticsRoutes(app: FastifyInstance, timerService: Time
   });
   app.get('/api/timers', async () => db.select().from(activeTimers).orderBy(activeTimers.id));
 
+  app.get('/api/cloud/status', async () => cloudSyncService.getStatus());
+
   app.get('/api/health', async () => {
     const floodlightCount = await db.select({ total: count() }).from(floodlights);
     const groupCount = await db.select({ total: count() }).from(groups);
@@ -58,6 +61,7 @@ export async function diagnosticsRoutes(app: FastifyInstance, timerService: Time
       app: 'up',
       db: 'ok',
       timerService: timerService.isRunning() ? 'running' : 'stopped',
+      cloud: cloudSyncService.getStatus(),
       counts: {
         floodlights: floodlightCount[0].total,
         groups: groupCount[0].total
