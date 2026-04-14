@@ -397,7 +397,7 @@ export function FloodlightsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold text-white">Floodlights Admin</h1>
+        <h1 className="text-2xl font-bold text-white">Floodlights</h1>
         <p className="text-sm text-slate-400">Installer-focused configuration and service actions.</p>
       </header>
 
@@ -436,9 +436,9 @@ export function FloodlightsPage() {
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-lg font-semibold text-white">{floodlight.name}</h2>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => onMutation.mutate(floodlight.id)} className="rounded bg-emerald-600 px-2 py-1 text-xs font-semibold text-white">ON</button>
-                    <button type="button" onClick={() => offMutation.mutate(floodlight.id)} className="rounded bg-slate-600 px-2 py-1 text-xs font-semibold text-white">OFF</button>
-                    <button type="button" onClick={() => startEdit(floodlight)} className="rounded bg-sky-700 px-2 py-1 text-xs font-semibold text-white">Edit</button>
+                    <button type="button" onClick={() => onMutation.mutate(floodlight.id)} className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">ON</button>
+                    <button type="button" onClick={() => offMutation.mutate(floodlight.id)} className="rounded bg-slate-600 px-3 py-1.5 text-xs font-semibold text-white">OFF</button>
+                    <button type="button" onClick={() => startEdit(floodlight)} className="rounded bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white">Edit</button>
                     <button
                       type="button"
                       onClick={() => {
@@ -446,7 +446,7 @@ export function FloodlightsPage() {
                           deleteMutation.mutate(floodlight.id);
                         }
                       }}
-                      className="rounded bg-red-700 px-2 py-1 text-xs font-semibold text-white"
+                      className="rounded bg-red-700 px-3 py-1.5 text-xs font-semibold text-white"
                     >
                       Delete
                     </button>
@@ -481,7 +481,7 @@ export function FloodlightsPage() {
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      className="rounded border border-slate-500 px-2 py-1"
+                      className="rounded border border-slate-500 px-3 py-1.5 font-medium"
                       onClick={() =>
                         void copyToClipboard(buildAbsoluteWebhookUrl(hubOrigin, floodlight.webhookKey ?? ''))
                           .then(() => showActionMessage('success', `Webhook URL copied for ${floodlight.name}`))
@@ -492,7 +492,7 @@ export function FloodlightsPage() {
                     </button>
                     <button
                       type="button"
-                      className="rounded border border-slate-500 px-2 py-1"
+                      className="rounded border border-slate-500 px-3 py-1.5 font-medium"
                       onClick={() =>
                         void copyToClipboard(`${headerName}: {sharedSecret}`)
                           .then(() => showActionMessage('success', `Webhook header copied for ${floodlight.name}`))
@@ -503,7 +503,7 @@ export function FloodlightsPage() {
                     </button>
                     <button
                       type="button"
-                      className="rounded border border-slate-500 px-2 py-1"
+                      className="rounded border border-slate-500 px-3 py-1.5 font-medium"
                       onClick={() =>
                         void copyToClipboard(
                           `curl -X POST '${buildAbsoluteWebhookUrl(hubOrigin, floodlight.webhookKey ?? '')}' -H '${headerName}: {sharedSecret}' -H 'Content-Type: application/json' -d '{}'`,

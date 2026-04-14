@@ -12,10 +12,6 @@ export function HubInfoCard({ settings }: HubInfoCardProps) {
 
       <dl className="mt-4 grid gap-3 md:grid-cols-2">
         <div>
-          <dt className="text-xs uppercase tracking-wide text-slate-400">Hub settings record</dt>
-          <dd className="text-sm text-slate-100">#{settings.id}</dd>
-        </div>
-        <div>
           <dt className="text-xs uppercase tracking-wide text-slate-400">UI Session Timeout</dt>
           <dd className="text-sm text-slate-100">{settings.uiSessionTimeoutMinutes} minutes</dd>
         </div>
@@ -28,6 +24,13 @@ export function HubInfoCard({ settings }: HubInfoCardProps) {
           <dd className="text-sm text-slate-100">{new Date(settings.updatedAt).toLocaleString()}</dd>
         </div>
       </dl>
+
+      <details className="mt-4 rounded-md border border-slate-700 bg-slate-950/40 p-3">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-300">
+          Advanced details
+        </summary>
+        <p className="mt-2 text-xs text-slate-400">Internal hub settings record identifier: #{settings.id}</p>
+      </details>
 
       {/* TODO: Expose editable controls for session timeout and log retention when product requirements request them. */}
     </section>

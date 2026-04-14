@@ -4,43 +4,58 @@ import { FloodlightsPage } from './pages/Floodlights';
 import { GroupsPage } from './pages/Groups';
 import { DiagnosticsPage } from './pages/DiagnosticsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import widgetsLogo from './assets/widgets-logo.svg';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  `rounded-md px-3 py-2 text-sm font-semibold ${
-    isActive ? 'bg-slate-700 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+  `rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+    isActive
+      ? 'bg-slate-700/90 text-white shadow-[inset_0_0_0_1px_rgba(148,163,184,0.25)]'
+      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
   }`;
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8">
-      <header className="mb-6 border-b border-slate-800 pb-4">
-        <nav className="flex items-center gap-2">
-          <NavLink to="/dashboard" className={navLinkClass}>
-            Dashboard
-          </NavLink>
-          <NavLink to="/floodlights" className={navLinkClass}>
-            Floodlights
-          </NavLink>
-          <NavLink to="/groups" className={navLinkClass}>
-            Groups
-          </NavLink>
-          <NavLink to="/diagnostics" className={navLinkClass}>
-            Diagnostics
-          </NavLink>
-          <NavLink to="/settings" className={navLinkClass}>
-            Settings
-          </NavLink>
-        </nav>
+    <div className="min-h-screen bg-slate-950">
+      <header className="border-b border-slate-800/90 bg-slate-950/90 px-4 py-3 backdrop-blur md:px-8">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <img src={widgetsLogo} alt="Widgets logo" className="h-9 w-9 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold tracking-wide text-white">Widgets Floodlight Hub</p>
+              <p className="text-xs text-slate-400">Local installer console</p>
+            </div>
+          </div>
+
+          <nav className="flex flex-wrap items-center gap-2">
+            <NavLink to="/dashboard" className={navLinkClass}>
+              Dashboard
+            </NavLink>
+            <NavLink to="/floodlights" className={navLinkClass}>
+              Floodlights
+            </NavLink>
+            <NavLink to="/groups" className={navLinkClass}>
+              Groups
+            </NavLink>
+            <NavLink to="/diagnostics" className={navLinkClass}>
+              Diagnostics
+            </NavLink>
+            <NavLink to="/settings" className={navLinkClass}>
+              Settings
+            </NavLink>
+          </nav>
+        </div>
       </header>
 
-      <Routes>
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/floodlights" element={<FloodlightsPage />} />
-        <Route path="/groups" element={<GroupsPage />} />
-        <Route path="/diagnostics" element={<DiagnosticsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
+      <main className="mx-auto w-full max-w-7xl p-4 md:p-8">
+        <Routes>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/floodlights" element={<FloodlightsPage />} />
+          <Route path="/groups" element={<GroupsPage />} />
+          <Route path="/diagnostics" element={<DiagnosticsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </main>
     </div>
   );
 }

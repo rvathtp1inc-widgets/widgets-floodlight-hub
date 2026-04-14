@@ -4,6 +4,7 @@ import { AstroSettingsCard } from '../components/AstroSettingsCard';
 import { HubInfoCard } from '../components/HubInfoCard';
 import { WebhookSettingsCard } from '../components/WebhookSettingsCard';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
+import { getTodaySunriseSunset, listIanaTimezones } from '../utils/astro';
 
 type SettingsFormValues = {
   timezone: string;
@@ -98,6 +99,12 @@ export function SettingsPage() {
     );
   }, [formValues, settingsQuery.data]);
 
+  const timezoneOptions = useMemo(() => listIanaTimezones(), []);
+  const astroPreview = useMemo(
+    () => getTodaySunriseSunset(formValues.timezone, formValues.latitude, formValues.longitude),
+    [formValues.timezone, formValues.latitude, formValues.longitude],
+  );
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -137,7 +144,7 @@ export function SettingsPage() {
   return (
     <section className="space-y-4">
       <header>
-        <h1 className="text-2xl font-bold text-white">Settings</h1>
+        <h1 className="text-2xl font-bold text-white">Hub Settings</h1>
         <p className="text-sm text-slate-400">Configure hub-level options used by astro schedules and webhook authentication.</p>
       </header>
 
@@ -150,6 +157,8 @@ export function SettingsPage() {
           timezoneError={errors.timezone}
           latitudeError={errors.latitude}
           longitudeError={errors.longitude}
+          timezoneOptions={timezoneOptions}
+          astroPreview={astroPreview}
           onChange={(field, value) => {
             setErrors((current) => ({ ...current, [field]: undefined }));
             setFormValues((current) => ({ ...current, [field]: value }));
@@ -183,7 +192,7 @@ export function SettingsPage() {
           <button
             type="submit"
             disabled={updateMutation.isPending || !isDirty}
-            className="rounded bg-blue-600 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-700"
+            className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-700"
           >
             {updateMutation.isPending ? 'Saving…' : 'Save settings'}
           </button>
