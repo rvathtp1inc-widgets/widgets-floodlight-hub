@@ -3,6 +3,7 @@ import { Dashboard } from './pages/Dashboard';
 import { FloodlightsPage } from './pages/Floodlights';
 import { GroupsPage } from './pages/Groups';
 import { DiagnosticsPage } from './pages/DiagnosticsPage';
+import { SettingsPage } from './pages/SettingsPage';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-semibold ${
@@ -26,6 +27,9 @@ export default function App() {
           <NavLink to="/diagnostics" className={navLinkClass}>
             Diagnostics
           </NavLink>
+          <NavLink to="/settings" className={navLinkClass}>
+            Settings
+          </NavLink>
         </nav>
       </header>
 
@@ -34,6 +38,7 @@ export default function App() {
         <Route path="/floodlights" element={<FloodlightsPage />} />
         <Route path="/groups" element={<GroupsPage />} />
         <Route path="/diagnostics" element={<DiagnosticsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </div>
