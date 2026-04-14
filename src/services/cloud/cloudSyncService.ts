@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
 import { FastifyBaseLogger } from 'fastify';
 import { CloudConfig, DeviceConfig } from '../../config.js';
-import { CloudApiClient } from './cloudApiClient.js';
+import { CloudApiClient, CloudApiError } from './cloudApiClient.js';
 
 export interface CloudStatusSnapshot {
   enabled: boolean;
@@ -28,6 +28,7 @@ export class CloudSyncService {
   private readonly status: CloudStatusSnapshot;
   private timeout?: NodeJS.Timeout;
   private stopped = false;
+  private runtimeDeviceId: string | null = null;
 
   constructor(
     private readonly cloudConfig: CloudConfig,
@@ -96,24 +97,59 @@ export class CloudSyncService {
     }, delayMs);
   }
 
+  private getErrorDetails(error: unknown): { status: number | null; message: string; responseBody: unknown | null } {
+    if (error instanceof CloudApiError) {
+      return { status: error.status, message: error.message, responseBody: error.responseBody };
+    }
+
+    return {
+      status: null,
+      message: error instanceof Error ? error.message : String(error),
+      responseBody: null
+    };
+  }
+
   private async runBootstrap(): Promise<void> {
     if (this.stopped) return;
 
     this.status.bootstrap.lastAttemptAt = DateTime.utc().toISO();
+    this.logger.info(
+      {
+        serialNumber: this.deviceConfig.serialNumber,
+        firmwareVersion: this.deviceConfig.firmwareVersion
+      },
+      'Cloud bootstrap starting.'
+    );
 
     try {
       const runtimeIdentity = await this.client.bootstrap(this.deviceConfig);
+      this.runtimeDeviceId = runtimeIdentity.deviceId;
       this.status.runtimeIdentity = runtimeIdentity;
       this.status.bootstrap.state = 'success';
       this.status.bootstrap.lastSuccessAt = DateTime.utc().toISO();
       this.status.bootstrap.lastError = null;
-      this.logger.info({ serialNumber: this.deviceConfig.serialNumber }, 'Cloud bootstrap succeeded.');
+      this.logger.info(
+        {
+          serialNumber: this.deviceConfig.serialNumber,
+          deviceId: this.runtimeDeviceId
+        },
+        'Cloud bootstrap success'
+      );
+      this.logger.info('Starting heartbeat loop');
       this.schedule(() => this.runHeartbeat(), this.cloudConfig.heartbeatIntervalSeconds * 1000);
     } catch (error) {
-      const message = (error as Error).message;
+      const { status, message, responseBody } = this.getErrorDetails(error);
       this.status.bootstrap.state = 'failure';
       this.status.bootstrap.lastError = message;
-      this.logger.warn({ err: error }, 'Cloud bootstrap failed; local hub behavior continues.');
+      this.logger.warn(
+        {
+          status,
+          message,
+          responseBody,
+          err: error
+        },
+        'Cloud bootstrap failure; local hub behavior continues.'
+      );
       this.schedule(() => this.runBootstrap(), this.cloudConfig.heartbeatIntervalSeconds * 1000);
     }
   }
@@ -127,26 +163,45 @@ export class CloudSyncService {
       return;
     }
 
+    if (!this.runtimeDeviceId) {
+      this.logger.warn(
+        { serialNumber: this.deviceConfig.serialNumber },
+        'Cloud heartbeat skipped because bootstrap deviceId is missing'
+      );
+      this.schedule(() => this.runBootstrap(), 0);
+      return;
+    }
+
     this.status.heartbeat.lastAttemptAt = DateTime.utc().toISO();
+    this.logger.info({ deviceId: this.runtimeDeviceId }, 'Heartbeat starting');
 
     try {
       const response = await this.client.heartbeat({
-        serialNumber: this.deviceConfig.serialNumber,
-        model: this.deviceConfig.model,
-        cloudIdentity: this.status.runtimeIdentity,
-        sentAt: DateTime.utc().toISO()!
+        deviceId: this.runtimeDeviceId,
+        status: 'online',
+        observedAt: new Date().toISOString()
       });
 
       this.status.runtimeIdentity = { ...this.status.runtimeIdentity, ...response };
       this.status.heartbeat.state = 'success';
       this.status.heartbeat.lastSuccessAt = DateTime.utc().toISO();
       this.status.heartbeat.lastError = null;
+      this.logger.info({ deviceId: this.runtimeDeviceId }, 'Heartbeat success');
       this.schedule(() => this.runHeartbeat(), this.cloudConfig.heartbeatIntervalSeconds * 1000);
     } catch (error) {
-      const message = (error as Error).message;
+      const { status, message, responseBody } = this.getErrorDetails(error);
       this.status.heartbeat.state = 'failure';
       this.status.heartbeat.lastError = message;
-      this.logger.warn({ err: error }, 'Cloud heartbeat failed; continuing local hub behavior.');
+      this.logger.warn(
+        {
+          status,
+          message,
+          deviceId: this.runtimeDeviceId,
+          responseBody,
+          err: error
+        },
+        'Heartbeat failed'
+      );
       this.schedule(() => this.runHeartbeat(), this.cloudConfig.heartbeatIntervalSeconds * 1000);
     }
   }

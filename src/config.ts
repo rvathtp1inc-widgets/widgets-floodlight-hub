@@ -1,14 +1,20 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const defaultCloudConfigPath = process.env.FLOODLIGHT_HUB_CONFIG_PATH ?? '/usr/local/widgets-data/floodlighthub.json';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const packageJsonPath = path.resolve(__dirname, '../package.json');
 
 export interface DeviceConfig {
   serialNumber: string;
   deviceSecret: string;
   model: string;
+  firmwareVersion: string;
 }
 
 export interface CloudConfig {
@@ -35,12 +41,26 @@ function readNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function readFirmwareVersion(): string {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { version?: unknown };
+    if (typeof parsed.version === 'string' && parsed.version.trim()) {
+      return parsed.version.trim();
+    }
+  } catch {
+    // Fall back to a safe placeholder if the repo version cannot be read.
+  }
+
+  return '0.0.0';
+}
+
 function loadProvisioningConfig(configPath: string) {
   const warnings: string[] = [];
   const device: DeviceConfig = {
     serialNumber: '',
     deviceSecret: '',
-    model: 'widgets-floodlight-hub'
+    model: 'widgets-floodlight-hub',
+    firmwareVersion: readFirmwareVersion()
   };
   const cloud: CloudConfig = {
     enabled: false,

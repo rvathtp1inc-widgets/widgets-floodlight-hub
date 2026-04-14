@@ -1,10 +1,25 @@
 import { CloudConfig, DeviceConfig } from '../../config.js';
 
 export interface CloudHeartbeatPayload {
-  serialNumber: string;
-  model: string;
-  cloudIdentity: Record<string, unknown>;
-  sentAt: string;
+  deviceId: string;
+  status: 'online';
+  observedAt: string;
+}
+
+export interface BootstrapResponse {
+  deviceId: string;
+  [key: string]: unknown;
+}
+
+export class CloudApiError extends Error {
+  constructor(
+    public readonly operation: 'bootstrap' | 'heartbeat',
+    public readonly status: number,
+    public readonly responseBody: unknown
+  ) {
+    super(`${operation} failed with HTTP ${status}: ${describeErrorBody(responseBody)}`);
+    this.name = 'CloudApiError';
+  }
 }
 
 async function parseJsonBody(response: Response): Promise<unknown> {
@@ -22,30 +37,50 @@ function buildCloudUrl(apiBaseUrl: string, path: string): URL {
   return new URL(path, normalizedBaseUrl);
 }
 
+function describeErrorBody(body: unknown): string {
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    const message = (body as { error?: unknown; message?: unknown }).error ?? (body as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) {
+      return message;
+    }
+  }
+
+  if (typeof body === 'string' && body.trim()) {
+    return body;
+  }
+
+  return JSON.stringify(body);
+}
+
 export class CloudApiClient {
   constructor(private readonly cloudConfig: CloudConfig) {}
 
-  async bootstrap(device: DeviceConfig): Promise<Record<string, unknown>> {
+  async bootstrap(device: DeviceConfig): Promise<BootstrapResponse> {
     const response = await fetch(buildCloudUrl(this.cloudConfig.apiBaseUrl, 'devices/bootstrap'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         serialNumber: device.serialNumber,
         deviceSecret: device.deviceSecret,
-        model: device.model
+        model: device.model,
+        firmwareVersion: device.firmwareVersion
       })
     });
 
     const body = await parseJsonBody(response);
     if (!response.ok) {
-      throw new Error(`Bootstrap failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+      throw new CloudApiError('bootstrap', response.status, body);
     }
 
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new Error('Bootstrap response was not a JSON object.');
     }
 
-    return body as Record<string, unknown>;
+    if (typeof (body as { deviceId?: unknown }).deviceId !== 'string' || !(body as { deviceId: string }).deviceId.trim()) {
+      throw new Error('Bootstrap response did not include a valid deviceId.');
+    }
+
+    return body as BootstrapResponse;
   }
 
   async heartbeat(payload: CloudHeartbeatPayload): Promise<Record<string, unknown>> {
@@ -57,7 +92,7 @@ export class CloudApiClient {
 
     const body = await parseJsonBody(response);
     if (!response.ok) {
-      throw new Error(`Heartbeat failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+      throw new CloudApiError('heartbeat', response.status, body);
     }
 
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
