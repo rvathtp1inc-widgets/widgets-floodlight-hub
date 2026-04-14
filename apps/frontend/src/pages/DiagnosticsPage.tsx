@@ -30,7 +30,7 @@ export function DiagnosticsPage() {
   return (
     <section className="space-y-4">
       <header>
-        <h1 className="text-2xl font-bold text-white">Diagnostics</h1>
+        <h1 className="text-2xl font-bold text-white">Hub Diagnostics</h1>
         <p className="text-sm text-slate-400">
           Installer/service diagnostics for inbound webhooks, automation decisions, outbound device
           commands, and active timers.

@@ -8,6 +8,10 @@ type AstroSettingsCardProps = {
   timezoneError?: string;
   latitudeError?: string;
   longitudeError?: string;
+  timezoneOptions: string[];
+  astroPreview:
+    | { status: 'ready'; sunrise: string; sunset: string }
+    | { status: 'incomplete' | 'invalid'; message: string };
   onChange: (field: 'timezone' | 'latitude' | 'longitude' | 'astroEnabled', value: string | boolean) => void;
 };
 
@@ -46,6 +50,8 @@ export function AstroSettingsCard({
   timezoneError,
   latitudeError,
   longitudeError,
+  timezoneOptions,
+  astroPreview,
   onChange,
 }: AstroSettingsCardProps) {
   const readiness = readinessLabel(timezone, latitude, longitude);
@@ -68,12 +74,18 @@ export function AstroSettingsCard({
         <label className="text-sm text-slate-200">
           Timezone
           <input
-            className="mt-1 w-full rounded bg-slate-800 px-2 py-1"
+            className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-2"
             value={timezone}
             onChange={(event) => onTextChange(event, 'timezone', onChange)}
             placeholder="UTC or America/Chicago"
+            list="timezone-options"
           />
-          <p className="mt-1 text-xs text-slate-400">Use an IANA timezone (for example: America/Los_Angeles).</p>
+          <datalist id="timezone-options">
+            {timezoneOptions.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
+          <p className="mt-1 text-xs text-slate-400">Search or select an IANA timezone (for example: America/Los_Angeles).</p>
           {timezoneError ? <p className="mt-1 text-xs text-rose-300">{timezoneError}</p> : null}
         </label>
 
@@ -83,7 +95,7 @@ export function AstroSettingsCard({
             checked={astroEnabled}
             onChange={(event) => onChange('astroEnabled', event.target.checked)}
           />
-          Enable astro scheduling
+          Enable sunset/sunrise scheduling
         </label>
 
         <label className="text-sm text-slate-200">
@@ -93,7 +105,7 @@ export function AstroSettingsCard({
             step="any"
             min={-90}
             max={90}
-            className="mt-1 w-full rounded bg-slate-800 px-2 py-1"
+            className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-2"
             value={latitude}
             onChange={(event) => onTextChange(event, 'latitude', onChange)}
             placeholder="37.7749"
@@ -109,7 +121,7 @@ export function AstroSettingsCard({
             step="any"
             min={-180}
             max={180}
-            className="mt-1 w-full rounded bg-slate-800 px-2 py-1"
+            className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-2"
             value={longitude}
             onChange={(event) => onTextChange(event, 'longitude', onChange)}
             placeholder="-122.4194"
@@ -117,6 +129,24 @@ export function AstroSettingsCard({
           <p className="mt-1 text-xs text-slate-400">Valid range is -180 to 180.</p>
           {longitudeError ? <p className="mt-1 text-xs text-rose-300">{longitudeError}</p> : null}
         </label>
+      </div>
+
+      <div className="mt-4 rounded-md border border-slate-700 bg-slate-950/60 p-3">
+        <h3 className="text-sm font-semibold text-white">Today&apos;s Astro Times</h3>
+        {astroPreview.status === 'ready' ? (
+          <dl className="mt-2 grid gap-2 text-sm text-slate-200 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-slate-400">Today&apos;s Sunrise</dt>
+              <dd>{astroPreview.sunrise}</dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-slate-400">Today&apos;s Sunset</dt>
+              <dd>{astroPreview.sunset}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="mt-2 text-sm text-amber-300">{astroPreview.message}</p>
+        )}
       </div>
     </section>
   );

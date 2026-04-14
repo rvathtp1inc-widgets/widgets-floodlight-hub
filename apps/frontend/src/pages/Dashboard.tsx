@@ -25,7 +25,7 @@ export function Dashboard() {
   return (
     <section className="space-y-4">
       <header>
-        <h1 className="text-2xl font-bold text-white">Floodlights Dashboard</h1>
+        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
         <p className="text-sm text-slate-400">Manual control and live status for each zone.</p>
       </header>
 

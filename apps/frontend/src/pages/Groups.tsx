@@ -249,7 +249,7 @@ export function GroupsPage() {
   return (
     <section className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold text-white">Groups Admin</h1>
+        <h1 className="text-2xl font-bold text-white">Groups</h1>
         <p className="text-sm text-slate-400">Installer-focused group scheduling, membership, and webhook controls.</p>
       </header>
 
@@ -277,10 +277,10 @@ export function GroupsPage() {
                     <p className="text-xs text-slate-400">Group Behavior: Group activation is evaluated at the group level first, then member floodlights are processed individually. A member floodlight may still be skipped due to override or other automation conditions.</p>
                   </div>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => startEdit(group)} className="rounded bg-sky-700 px-2 py-1 text-xs font-semibold text-white">Edit</button>
+                    <button type="button" onClick={() => startEdit(group)} className="rounded bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white">Edit</button>
                     <button
                       type="button"
-                      className="rounded bg-red-700 px-2 py-1 text-xs font-semibold text-white"
+                      className="rounded bg-red-700 px-3 py-1.5 text-xs font-semibold text-white"
                       onClick={async () => {
                         if (!window.confirm(`Delete group \"${group.name}\"? This also removes its membership assignments.`)) return;
                         try {
@@ -315,12 +315,12 @@ export function GroupsPage() {
                   <p><strong>Header Name:</strong> {headerName}</p>
                   <p><strong>Secret:</strong> {group.hasSharedSecret ? 'Configured (required)' : 'Not set (requests likely rejected)'}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(absoluteUrl).then(() => show('success', `URL copied for ${group.name}`)).catch(() => show('error', 'Copy failed.'))}>Copy URL</button>
-                    <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(`${headerName}: {sharedSecret}`).then(() => show('success', `Header copied for ${group.name}`)).catch(() => show('error', 'Copy failed.'))}>Copy Header</button>
-                    <button type="button" className="rounded border border-slate-500 px-2 py-1" onClick={() => void copyToClipboard(curl).then(() => show('success', `Example copied for ${group.name}`)).catch(() => show('error', 'Copy failed.'))}>Copy Example</button>
+                    <button type="button" className="rounded border border-slate-500 px-3 py-1.5 font-medium" onClick={() => void copyToClipboard(absoluteUrl).then(() => show('success', `URL copied for ${group.name}`)).catch(() => show('error', 'Copy failed.'))}>Copy URL</button>
+                    <button type="button" className="rounded border border-slate-500 px-3 py-1.5 font-medium" onClick={() => void copyToClipboard(`${headerName}: {sharedSecret}`).then(() => show('success', `Header copied for ${group.name}`)).catch(() => show('error', 'Copy failed.'))}>Copy Header</button>
+                    <button type="button" className="rounded border border-slate-500 px-3 py-1.5 font-medium" onClick={() => void copyToClipboard(curl).then(() => show('success', `Example copied for ${group.name}`)).catch(() => show('error', 'Copy failed.'))}>Copy Example</button>
                     <button
                       type="button"
-                      className="rounded border border-indigo-500/60 px-2 py-1"
+                      className="rounded border border-indigo-500/60 px-3 py-1.5 font-medium"
                       onClick={async () => {
                         try {
                           const result = await triggerTestMutation.mutateAsync(group.id);
