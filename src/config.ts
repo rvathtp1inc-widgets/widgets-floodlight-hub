@@ -23,6 +23,12 @@ export interface CloudConfig {
   heartbeatIntervalSeconds: number;
 }
 
+export interface ProtectApiConfig {
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string;
+}
+
 interface ProvisioningConfigFile {
   device?: {
     serialNumber?: unknown;
@@ -140,6 +146,11 @@ export const config = {
   encryptionKey: process.env.APP_ENCRYPTION_KEY ?? 'dev-only-key-change-me',
   timerPollSeconds: readNumber(process.env.TIMER_POLL_SECONDS, 5),
   requestTimeoutMs: readNumber(process.env.REQUEST_TIMEOUT_MS, 5000),
+  protectApi: {
+    enabled: process.env.PROTECT_API_ENABLED === 'true',
+    baseUrl: process.env.PROTECT_API_BASE_URL?.trim() ?? '',
+    apiKey: process.env.PROTECT_API_KEY?.trim() ?? ''
+  } satisfies ProtectApiConfig,
   cloudConfigPath: defaultCloudConfigPath,
   device: provisioningConfig.device,
   cloud: provisioningConfig.cloud,

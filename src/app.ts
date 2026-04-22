@@ -10,6 +10,7 @@ import { webhookRoutes } from './routes/webhooks.js';
 import { settingsRoutes } from './routes/settings.js';
 import { diagnosticsRoutes } from './routes/diagnostics.js';
 import { CloudSyncService } from './services/cloud/cloudSyncService.js';
+import { ProtectApiIngestService } from './services/protectApi/protectApiIngestService.js';
 import { TimerService } from './services/timers/timerService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,6 +23,7 @@ export function buildApp() {
   const app = Fastify({ logger: true });
   const timerService = new TimerService();
   const cloudSyncService = new CloudSyncService(config.cloud, config.device, app.log);
+  const protectApiIngestService = new ProtectApiIngestService(config.protectApi, app.log);
 
   for (const warning of config.configWarnings) {
     app.log.warn(warning);
@@ -60,11 +62,13 @@ export function buildApp() {
     rawDb.prepare('SELECT 1').get();
     timerService.start(config.timerPollSeconds);
     cloudSyncService.start();
+    protectApiIngestService.start();
   });
 
   app.addHook('onClose', async () => {
     timerService.stop();
     cloudSyncService.stop();
+    protectApiIngestService.stop();
   });
 
   return app;

@@ -2,6 +2,8 @@
 
 Local-first backend for Raspberry Pi deployment. It receives UniFi Protect webhooks, evaluates hub-managed policy, controls Shelly 1 Mini Gen4 relays via local RPC, and maintains active timers in SQLite.
 
+Webhook ingestion remains the current production path. A backend-only UniFi Protect API/WebSocket ingest POC is also available for diagnostics, but it does not route events into floodlight actions yet.
+
 ## Stack
 - Node.js + TypeScript
 - Fastify
@@ -56,6 +58,9 @@ Server defaults to `http://0.0.0.0:8787`.
 - `APP_ENCRYPTION_KEY`: used for encrypted Shelly passwords/shared webhook secret
 - `TIMER_POLL_SECONDS`: timer loop poll interval
 - `REQUEST_TIMEOUT_MS`: Shelly RPC timeout
+- `PROTECT_API_ENABLED`: enable UniFi Protect API/WebSocket diagnostics ingest. Default: `false`
+- `PROTECT_API_BASE_URL`: Protect base URL such as `https://protect.local`
+- `PROTECT_API_KEY`: UniFi Protect API key used as the `X-API-KEY` websocket header
 - `FLOODLIGHT_HUB_CONFIG_PATH`: optional override for provisioning config path. Default: `/usr/local/widgets-data/floodlighthub.json`
 
 ## Cloud provisioning config
@@ -130,3 +135,28 @@ sudo systemctl start widgets-floodlight-hub
 - Group retriggers refresh full auto-off timer duration.
 - Timer expiry turns off group members, except floodlights in `force_on` override.
 - Shelly standardization disables `auto_off` and `auto_on` for relay id `0`.
+
+## UniFi Protect API ingest POC
+- Connects to `/proxy/protect/integration/v1/subscribe/events` with `X-API-KEY`.
+- Disabled by default and kept separate from the working webhook path.
+- Logs raw websocket payloads and emits diagnostics-only normalized events.
+- Reconnects with basic exponential backoff after disconnects.
+
+Confirmed findings from live payload observation:
+- API websocket ingest is viable and returns real-time event messages.
+- `item.device` maps to the Protect camera/device id.
+- Observed event classes include zone, line, motion, and audio via `item.type`.
+- Object and audio classifications are available via `item.smartDetectTypes`.
+- Event lifecycle is visible through websocket envelope `type` values such as `add` and `update`, plus optional `item.end`.
+- Named smart-zone identity was not observed in payloads.
+- Named line identity and line direction were not observed in payloads.
+- Webhooks remain necessary for zone-specific or line-specific routing needs.
+
+Manual validation:
+1. Set `PROTECT_API_ENABLED=true`, `PROTECT_API_BASE_URL`, and `PROTECT_API_KEY` in `.env`.
+2. Start the backend with `npm run dev` or rebuild with `npm run build && npm start`.
+3. Trigger Protect events and watch backend logs for:
+   `Protect API websocket connected.`
+   `Protect API raw event received.`
+   `Protect API normalized event emitted.`
+4. Confirm existing webhook-triggered floodlight behavior still works through `GET|POST /api/webhooks/unifi/:webhookKey`.
