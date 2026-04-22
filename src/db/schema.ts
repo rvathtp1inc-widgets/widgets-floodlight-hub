@@ -110,3 +110,32 @@ export const hubSettings = sqliteTable('hub_settings', {
   createdAt: text('created_at').notNull().default(now),
   updatedAt: text('updated_at').notNull().default(now)
 });
+
+export const protectSources = sqliteTable('protect_sources', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  protectCameraId: text('protect_camera_id').notNull().unique(),
+  name: text('name').notNull(),
+  modelKey: text('model_key').notNull(),
+  state: text('state').notNull(),
+  supportsSmartDetect: integer('supports_smart_detect', { mode: 'boolean' }).notNull().default(false),
+  supportedObjectTypesJson: text('supported_object_types_json').notNull().default('[]'),
+  enabledObjectTypesJson: text('enabled_object_types_json').notNull().default('[]'),
+  lastSeenAt: text('last_seen_at').notNull(),
+  lastEventSeenAt: text('last_event_seen_at'),
+  updatedAt: text('updated_at').notNull().default(now),
+  rawJson: text('raw_json')
+});
+
+export const eventRoutes = sqliteTable('event_routes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  sourceType: text('source_type').notNull(),
+  sourceId: integer('source_id').notNull(),
+  eventClass: text('event_class').notNull(),
+  upstreamEventType: text('upstream_event_type'),
+  objectTypesJson: text('object_types_json'),
+  bindingStatus: text('binding_status').notNull(),
+  targetType: text('target_type'),
+  targetId: integer('target_id'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  notes: text('notes')
+});

@@ -9,8 +9,11 @@ import { groupRoutes } from './routes/groups.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { settingsRoutes } from './routes/settings.js';
 import { diagnosticsRoutes } from './routes/diagnostics.js';
+import { protectSourceRoutes } from './routes/protectSources.js';
+import { eventRouteRoutes } from './routes/eventRoutes.js';
 import { CloudSyncService } from './services/cloud/cloudSyncService.js';
 import { ProtectApiIngestService } from './services/protectApi/protectApiIngestService.js';
+import { ProtectSourceSyncService } from './services/protectApi/protectSourceSyncService.js';
 import { TimerService } from './services/timers/timerService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,6 +27,7 @@ export function buildApp() {
   const timerService = new TimerService();
   const cloudSyncService = new CloudSyncService(config.cloud, config.device, app.log);
   const protectApiIngestService = new ProtectApiIngestService(config.protectApi, app.log);
+  const protectSourceSyncService = new ProtectSourceSyncService(config.protectApi, app.log);
 
   for (const warning of config.configWarnings) {
     app.log.warn(warning);
@@ -41,6 +45,8 @@ export function buildApp() {
     await webhookRoutes(instance, timerService);
     await settingsRoutes(instance);
     await diagnosticsRoutes(instance, timerService, cloudSyncService);
+    await protectSourceRoutes(instance, protectSourceSyncService);
+    await eventRouteRoutes(instance);
   });
 
   // Optional API root; move it off "/" so frontend can own "/"
