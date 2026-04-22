@@ -1,12 +1,15 @@
-import { and, eq } from 'drizzle-orm';
-import { DateTime } from 'luxon';
+import { eq } from 'drizzle-orm';
+import { FastifyBaseLogger } from 'fastify';
 import { db } from '../../db/client.js';
-import { floodlights, groupMemberships, groups, hubSettings } from '../../db/schema.js';
+import { floodlights, groups, hubSettings } from '../../db/schema.js';
 import { decryptString } from '../../lib/secrets.js';
-import { insertCommandLogWithRetention, insertEventLogWithRetention } from '../diagnostics/logRetentionService.js';
-import { evaluateFloodlightPolicy, evaluateGroupPolicy } from '../policy/policyService.js';
-import { shellyService } from '../shelly/shellyService.js';
-import { TimerService } from '../timers/timerService.js';
+import { insertEventLogWithRetention } from '../diagnostics/logRetentionService.js';
+import { IngressEventDispatcher } from '../ingress/ingressEventDispatcher.js';
+import { ProtectSourceSyncService } from '../protectApi/protectSourceSyncService.js';
+import {
+  extractWebhookCameraId,
+  normalizeWebhookEvent
+} from './normalizeWebhookEvent.js';
 
 export async function handleGroupWebhook(input: {
   webhookKey: string;
@@ -14,7 +17,9 @@ export async function handleGroupWebhook(input: {
   remoteIp?: string;
   headers: Record<string, unknown>;
   payload?: unknown;
-  timerService: TimerService;
+  logger: FastifyBaseLogger;
+  ingressEventDispatcher: IngressEventDispatcher;
+  protectSourceSyncService: ProtectSourceSyncService;
 }) {
   const settings = (await db.query.hubSettings.findFirst({ where: eq(hubSettings.id, 1) })) ?? {
     defaultWebhookHeaderName: 'X-Widgets-Secret'
@@ -28,17 +33,77 @@ export async function handleGroupWebhook(input: {
   const expectedSecret = encryptedSecret ? decryptString(encryptedSecret) : undefined;
   const targetType = group ? 'group' : floodlight ? 'floodlight' : null;
   const targetId = group?.id ?? floodlight?.id ?? null;
-  const authValid = !!targetType && (!expectedSecret || expectedSecret === providedSecret);
+  const sharedSecretValidated = !!targetType && (!expectedSecret || expectedSecret === providedSecret);
+  const receivedAt = new Date().toISOString();
 
-  const decision = !targetType
-    ? { accepted: false, reason: 'group_not_found' }
-    : !authValid
-      ? { accepted: false, reason: 'invalid_secret' }
-      : group
-        ? await evaluateGroupPolicy(group.id)
-        : await evaluateFloodlightPolicy(floodlight!.id);
+  const cameraId = extractWebhookCameraId(input.payload);
+  let resolvedSource = null;
 
-  const event = await insertEventLogWithRetention({
+  if (cameraId) {
+    try {
+      resolvedSource = await input.protectSourceSyncService.resolveSourceByCameraId(cameraId);
+      if (resolvedSource) {
+        input.logger.info(
+          {
+            webhookKey: input.webhookKey,
+            cameraId,
+            targetHintType: targetType,
+            targetHintId: targetId,
+            resolvedSourceId: resolvedSource.sourceId
+          },
+          'Webhook camera resolved to a protect source before unified ingress publish.'
+        );
+      } else {
+        input.logger.warn(
+          {
+            webhookKey: input.webhookKey,
+            cameraId,
+            targetHintType: targetType,
+            targetHintId: targetId
+          },
+          'Webhook camera id did not resolve to a protect source; continuing normalization.'
+        );
+      }
+    } catch (error) {
+      input.logger.warn(
+        {
+          webhookKey: input.webhookKey,
+          cameraId,
+          err: error
+        },
+        'Webhook source resolution failed; continuing normalization without resolved source.'
+      );
+    }
+  } else {
+    input.logger.warn(
+      {
+        webhookKey: input.webhookKey,
+        targetHintType: targetType,
+        targetHintId: targetId
+      },
+      'Webhook payload did not include a usable camera id; continuing normalization without resolved source.'
+    );
+  }
+
+  const normalizedEvent = normalizeWebhookEvent({
+    webhookKey: input.webhookKey,
+    payload: input.payload,
+    receivedAt,
+    targetHintType: targetType,
+    targetHintId: targetId,
+    sharedSecretValidated,
+    resolvedSource
+  });
+
+  await input.ingressEventDispatcher.publish(normalizedEvent);
+
+  const diagnosticsReason = !targetType
+    ? 'target_not_found'
+    : !sharedSecretValidated
+      ? 'invalid_secret'
+      : 'diagnostics_only_phase';
+
+  await insertEventLogWithRetention({
     webhookKey: input.webhookKey,
     targetType,
     targetId,
@@ -46,67 +111,22 @@ export async function handleGroupWebhook(input: {
     remoteIp: input.remoteIp,
     headerSummary: JSON.stringify({ [headerName]: providedSecret ? 'present' : 'missing' }),
     payloadRaw: input.payload ? JSON.stringify(input.payload) : null,
-    authResult: authValid ? 'valid' : 'invalid',
-    decision: decision.accepted ? 'accepted' : 'rejected',
-    decisionReason: decision.reason
+    authResult: sharedSecretValidated ? 'valid' : 'invalid',
+    decision: 'rejected',
+    decisionReason: diagnosticsReason
   });
-
-  const activated: number[] = [];
-  const skipped: Array<{ floodlightId: number; reason: string }> = [];
-  if (decision.accepted && group) {
-    const members = await db.select().from(groupMemberships).where(eq(groupMemberships.groupId, group.id));
-    for (const member of members) {
-      const light = await db.query.floodlights.findFirst({ where: and(eq(floodlights.id, member.floodlightId), eq(floodlights.automationEnabled, true)) });
-      if (!light) continue;
-      if (light.manualOverrideMode === 'force_off' || light.manualOverrideMode === 'suspended') {
-        skipped.push({ floodlightId: light.id, reason: light.manualOverrideMode });
-        continue;
-      }
-      const password = decryptString(light.shellyPasswordEncrypted ?? undefined);
-      try {
-        const response = await shellyService.setOutput(light.shellyHost, light.shellyPort, light.relayId, true, password);
-        await db.update(floodlights).set({ lastKnownOutput: true, lastCommandStatus: 'ok', updatedAt: DateTime.utc().toISO()! }).where(eq(floodlights.id, light.id));
-        await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'on', success: true, responseSummary: JSON.stringify(response) });
-        activated.push(light.id);
-      } catch (error) {
-        skipped.push({ floodlightId: light.id, reason: 'command_failed' });
-        await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'on', success: false, errorText: (error as Error).message });
-      }
-    }
-    await input.timerService.createOrRefreshGroupTimer(group.id, group.autoOffSeconds, event[0].id);
-  }
-
-  if (decision.accepted && floodlight) {
-    const light = await db.query.floodlights.findFirst({ where: and(eq(floodlights.id, floodlight.id), eq(floodlights.automationEnabled, true)) });
-    if (light) {
-      if (light.manualOverrideMode === 'force_off' || light.manualOverrideMode === 'suspended') {
-        skipped.push({ floodlightId: light.id, reason: light.manualOverrideMode });
-      } else {
-        const password = decryptString(light.shellyPasswordEncrypted ?? undefined);
-        try {
-          const response = await shellyService.setOutput(light.shellyHost, light.shellyPort, light.relayId, true, password);
-          await db.update(floodlights).set({ lastKnownOutput: true, lastCommandStatus: 'ok', updatedAt: DateTime.utc().toISO()! }).where(eq(floodlights.id, light.id));
-          await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'on', success: true, responseSummary: JSON.stringify(response) });
-          activated.push(light.id);
-        } catch (error) {
-          skipped.push({ floodlightId: light.id, reason: 'command_failed' });
-          await insertCommandLogWithRetention({ floodlightId: light.id, commandType: 'on', success: false, errorText: (error as Error).message });
-        }
-      }
-
-      if (light.autoOffSeconds > 0) {
-        await input.timerService.createOrRefreshFloodlightTimer(light.id, light.autoOffSeconds, event[0].id);
-      }
-    }
-  }
 
   return {
     groupId: group?.id,
     floodlightId: floodlight?.id,
     webhookKey: input.webhookKey,
-    accepted: decision.accepted,
-    reason: decision.reason,
-    activatedFloodlights: activated,
-    skipped
+    accepted: false,
+    reason: diagnosticsReason,
+    diagnosticsOnly: true,
+    published: true,
+    cameraId: normalizedEvent.cameraId,
+    resolvedSourceId: resolvedSource?.sourceId ?? null,
+    activatedFloodlights: [],
+    skipped: []
   };
 }

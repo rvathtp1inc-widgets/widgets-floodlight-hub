@@ -1,3 +1,9 @@
+import {
+  NormalizedEventClass,
+  NormalizedIngressEvent,
+  ProtectSourceResolutionContext
+} from '../ingress/normalizedEvent.js';
+
 export interface ProtectApiEventEnvelope {
   type?: unknown;
   item?: {
@@ -11,32 +17,23 @@ export interface ProtectApiEventEnvelope {
   [key: string]: unknown;
 }
 
-export interface NormalizedProtectApiEvent {
+export interface NormalizedProtectApiEvent extends Omit<NormalizedIngressEvent<ProtectApiEventEnvelope>, 'resolvedSource' | 'lifecycle' | 'precision'> {
   source: 'protect_api';
+  ingressType: 'api';
   cameraId: string | null;
   eventType: string | null;
-  eventClass: 'zone' | 'line' | 'motion' | 'audio' | 'unknown';
+  eventClass: NormalizedEventClass;
   objectTypes: string[];
-  timestamp: string;
   raw: ProtectApiEventEnvelope;
-}
-
-export interface ProtectSourceResolutionContext {
-  sourceType: 'protect_source';
-  sourceId: number;
-  protectCameraId: string;
-  name: string;
-  modelKey: string;
-  state: string;
-  lastSeenAt: string;
-  lastEventSeenAt: string | null;
+  diagnosticsOnly: true;
 }
 
 export interface ResolvedNormalizedProtectApiEvent extends NormalizedProtectApiEvent {
   resolvedSource: ProtectSourceResolutionContext | null;
+  lifecycle: string;
 }
 
-function mapEventClass(eventType: string | null): NormalizedProtectApiEvent['eventClass'] {
+function mapEventClass(eventType: string | null): NormalizedEventClass {
   switch (eventType) {
     case 'smartDetectZone':
       return 'zone';
@@ -71,11 +68,13 @@ export function normalizeProtectApiEvent(raw: ProtectApiEventEnvelope): Normaliz
 
   return {
     source: 'protect_api',
+    ingressType: 'api',
     cameraId,
     eventType,
     eventClass: mapEventClass(eventType),
     objectTypes: toObjectTypes(item?.smartDetectTypes),
     timestamp: toTimestamp(item?.start),
-    raw
+    raw,
+    diagnosticsOnly: true
   };
 }

@@ -4,7 +4,7 @@ import { DateTime } from 'luxon';
 import { ProtectApiConfig } from '../../config.js';
 import { db } from '../../db/client.js';
 import { protectSources } from '../../db/schema.js';
-import { ProtectSourceResolutionContext } from './normalizeProtectApiEvent.js';
+import { ProtectSourceResolutionContext } from '../ingress/normalizedEvent.js';
 
 const PROTECT_CAMERAS_PATH = '/proxy/protect/integration/v1/cameras';
 

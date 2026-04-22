@@ -1,10 +1,11 @@
 import { FastifyBaseLogger } from 'fastify';
 import WebSocket, { RawData } from 'ws';
 import { ProtectApiConfig } from '../../config.js';
+import { IngressEventDispatcher } from '../ingress/ingressEventDispatcher.js';
+import { ProtectSourceResolutionContext } from '../ingress/normalizedEvent.js';
 import {
   normalizeProtectApiEvent,
   ProtectApiEventEnvelope,
-  ProtectSourceResolutionContext,
   ResolvedNormalizedProtectApiEvent
 } from './normalizeProtectApiEvent.js';
 import { ProtectSourceSyncService } from './protectSourceSyncService.js';
@@ -61,7 +62,8 @@ export class ProtectApiIngestService {
   constructor(
     private readonly protectApiConfig: ProtectApiConfig,
     logger: FastifyBaseLogger,
-    private readonly protectSourceSyncService: ProtectSourceSyncService
+    private readonly protectSourceSyncService: ProtectSourceSyncService,
+    private readonly ingressEventDispatcher: IngressEventDispatcher
   ) {
     this.logger = logger.child({ service: 'protectApiIngest' });
     this.status = {
@@ -207,46 +209,39 @@ export class ProtectApiIngestService {
     const resolvedSource = await this.resolveProtectSource(normalized.cameraId, normalized.timestamp);
     const normalizedEvent: ResolvedNormalizedProtectApiEvent = {
       ...normalized,
-      resolvedSource
-    };
-
-    const diagnosticsContext = {
-      lifecycle,
-      normalizedEvent,
-      diagnosticsOnly: true,
-      unsupportedDetails: {
-        namedSmartZoneIdentityAvailable: false,
-        namedLineIdentityAvailable: false,
-        lineDirectionAvailable: false
-      }
+      resolvedSource,
+      lifecycle
     };
 
     if (resolvedSource) {
       this.logger.info(
         {
-          ...diagnosticsContext,
+          lifecycle,
+          normalizedEvent,
           sourceResolution: {
             status: 'resolved',
             sourceType: resolvedSource.sourceType,
             sourceId: resolvedSource.sourceId
           }
         },
-        'Protect API normalized event emitted with resolved source.'
+        'Protect API source resolved before unified ingress publish.'
       );
-      return;
+    } else {
+      this.logger.warn(
+        {
+          lifecycle,
+          normalizedEvent,
+          sourceResolution: {
+            status: 'unresolved',
+            protectCameraId: normalized.cameraId,
+            reason: normalized.cameraId ? 'protect_source_not_found' : 'camera_id_missing'
+          }
+        },
+        'Protect API source unresolved before unified ingress publish.'
+      );
     }
 
-    this.logger.warn(
-      {
-        ...diagnosticsContext,
-        sourceResolution: {
-          status: 'unresolved',
-          protectCameraId: normalized.cameraId,
-          reason: normalized.cameraId ? 'protect_source_not_found' : 'camera_id_missing'
-        }
-      },
-      'Protect API normalized event emitted with unresolved source.'
-    );
+    await this.ingressEventDispatcher.publish(normalizedEvent);
   }
 
   private async resolveProtectSource(

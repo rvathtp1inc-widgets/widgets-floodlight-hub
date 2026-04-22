@@ -12,6 +12,8 @@ import { diagnosticsRoutes } from './routes/diagnostics.js';
 import { protectSourceRoutes } from './routes/protectSources.js';
 import { eventRouteRoutes } from './routes/eventRoutes.js';
 import { CloudSyncService } from './services/cloud/cloudSyncService.js';
+import { registerIngressDiagnosticsSubscriber } from './services/ingress/ingressDiagnosticsSubscriber.js';
+import { IngressEventDispatcher } from './services/ingress/ingressEventDispatcher.js';
 import { ProtectApiIngestService } from './services/protectApi/protectApiIngestService.js';
 import { ProtectSourceSyncService } from './services/protectApi/protectSourceSyncService.js';
 import { TimerService } from './services/timers/timerService.js';
@@ -26,8 +28,15 @@ export function buildApp() {
   const app = Fastify({ logger: true });
   const timerService = new TimerService();
   const cloudSyncService = new CloudSyncService(config.cloud, config.device, app.log);
+  const ingressEventDispatcher = new IngressEventDispatcher();
   const protectSourceSyncService = new ProtectSourceSyncService(config.protectApi, app.log);
-  const protectApiIngestService = new ProtectApiIngestService(config.protectApi, app.log, protectSourceSyncService);
+  registerIngressDiagnosticsSubscriber(ingressEventDispatcher, app.log);
+  const protectApiIngestService = new ProtectApiIngestService(
+    config.protectApi,
+    app.log,
+    protectSourceSyncService,
+    ingressEventDispatcher
+  );
 
   for (const warning of config.configWarnings) {
     app.log.warn(warning);
@@ -42,7 +51,7 @@ export function buildApp() {
   app.register(async (instance) => {
     await floodlightRoutes(instance);
     await groupRoutes(instance);
-    await webhookRoutes(instance, timerService);
+    await webhookRoutes(instance, ingressEventDispatcher, protectSourceSyncService);
     await settingsRoutes(instance);
     await diagnosticsRoutes(instance, timerService, cloudSyncService);
     await protectSourceRoutes(instance, protectSourceSyncService);

@@ -1,8 +1,13 @@
 import { FastifyInstance } from 'fastify';
 import { handleGroupWebhook } from '../services/webhooks/webhookService.js';
-import { TimerService } from '../services/timers/timerService.js';
+import { IngressEventDispatcher } from '../services/ingress/ingressEventDispatcher.js';
+import { ProtectSourceSyncService } from '../services/protectApi/protectSourceSyncService.js';
 
-export async function webhookRoutes(app: FastifyInstance, timerService: TimerService) {
+export async function webhookRoutes(
+  app: FastifyInstance,
+  ingressEventDispatcher: IngressEventDispatcher,
+  protectSourceSyncService: ProtectSourceSyncService
+) {
   app.get('/api/webhooks/unifi/:webhookKey', async (request) => {
     const params = request.params as { webhookKey: string };
     return handleGroupWebhook({
@@ -10,7 +15,9 @@ export async function webhookRoutes(app: FastifyInstance, timerService: TimerSer
       method: 'GET',
       remoteIp: request.ip,
       headers: request.headers as Record<string, unknown>,
-      timerService
+      logger: app.log,
+      ingressEventDispatcher,
+      protectSourceSyncService
     });
   });
 
@@ -22,7 +29,9 @@ export async function webhookRoutes(app: FastifyInstance, timerService: TimerSer
       remoteIp: request.ip,
       headers: request.headers as Record<string, unknown>,
       payload: request.body,
-      timerService
+      logger: app.log,
+      ingressEventDispatcher,
+      protectSourceSyncService
     });
   });
 }
