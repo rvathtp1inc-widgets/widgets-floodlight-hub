@@ -26,8 +26,8 @@ export function buildApp() {
   const app = Fastify({ logger: true });
   const timerService = new TimerService();
   const cloudSyncService = new CloudSyncService(config.cloud, config.device, app.log);
-  const protectApiIngestService = new ProtectApiIngestService(config.protectApi, app.log);
   const protectSourceSyncService = new ProtectSourceSyncService(config.protectApi, app.log);
+  const protectApiIngestService = new ProtectApiIngestService(config.protectApi, app.log, protectSourceSyncService);
 
   for (const warning of config.configWarnings) {
     app.log.warn(warning);

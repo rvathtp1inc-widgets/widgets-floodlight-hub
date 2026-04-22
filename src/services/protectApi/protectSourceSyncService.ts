@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import { ProtectApiConfig } from '../../config.js';
 import { db } from '../../db/client.js';
 import { protectSources } from '../../db/schema.js';
+import { ProtectSourceResolutionContext } from './normalizeProtectApiEvent.js';
 
 const PROTECT_CAMERAS_PATH = '/proxy/protect/integration/v1/cameras';
 
@@ -222,6 +223,52 @@ export class ProtectSourceSyncService {
 
   async listSources() {
     return db.select().from(protectSources).orderBy(asc(protectSources.name), asc(protectSources.id));
+  }
+
+  async resolveSourceByCameraId(cameraId: string): Promise<ProtectSourceResolutionContext | null> {
+    const trimmedCameraId = cameraId.trim();
+    if (!trimmedCameraId) {
+      return null;
+    }
+
+    const row = await db
+      .select({
+        id: protectSources.id,
+        protectCameraId: protectSources.protectCameraId,
+        name: protectSources.name,
+        modelKey: protectSources.modelKey,
+        state: protectSources.state,
+        lastSeenAt: protectSources.lastSeenAt,
+        lastEventSeenAt: protectSources.lastEventSeenAt
+      })
+      .from(protectSources)
+      .where(eq(protectSources.protectCameraId, trimmedCameraId))
+      .limit(1);
+
+    const source = row[0];
+    if (!source) {
+      return null;
+    }
+
+    return {
+      sourceType: 'protect_source',
+      sourceId: source.id,
+      protectCameraId: source.protectCameraId,
+      name: source.name,
+      modelKey: source.modelKey,
+      state: source.state,
+      lastSeenAt: source.lastSeenAt,
+      lastEventSeenAt: source.lastEventSeenAt
+    };
+  }
+
+  async markSourceEventSeen(sourceId: number, seenAt: string): Promise<void> {
+    await db
+      .update(protectSources)
+      .set({
+        lastEventSeenAt: seenAt
+      })
+      .where(eq(protectSources.id, sourceId));
   }
 
   async syncSources(): Promise<ProtectSourceSyncResult> {

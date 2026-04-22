@@ -1,7 +1,13 @@
 import { FastifyBaseLogger } from 'fastify';
 import WebSocket, { RawData } from 'ws';
 import { ProtectApiConfig } from '../../config.js';
-import { normalizeProtectApiEvent, ProtectApiEventEnvelope } from './normalizeProtectApiEvent.js';
+import {
+  normalizeProtectApiEvent,
+  ProtectApiEventEnvelope,
+  ProtectSourceResolutionContext,
+  ResolvedNormalizedProtectApiEvent
+} from './normalizeProtectApiEvent.js';
+import { ProtectSourceSyncService } from './protectSourceSyncService.js';
 
 const PROTECT_API_EVENTS_PATH = '/proxy/protect/integration/v1/subscribe/events';
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
@@ -52,7 +58,11 @@ export class ProtectApiIngestService {
   private reconnectTimeout?: NodeJS.Timeout;
   private stopped = false;
 
-  constructor(private readonly protectApiConfig: ProtectApiConfig, logger: FastifyBaseLogger) {
+  constructor(
+    private readonly protectApiConfig: ProtectApiConfig,
+    logger: FastifyBaseLogger,
+    private readonly protectSourceSyncService: ProtectSourceSyncService
+  ) {
     this.logger = logger.child({ service: 'protectApiIngest' });
     this.status = {
       enabled: protectApiConfig.enabled,
@@ -140,7 +150,7 @@ export class ProtectApiIngestService {
     });
 
     socket.on('message', (message) => {
-      this.handleMessage(message);
+      void this.handleMessage(message);
     });
 
     socket.on('close', (code, reason) => {
@@ -166,7 +176,7 @@ export class ProtectApiIngestService {
     });
   }
 
-  private handleMessage(message: RawData): void {
+  private async handleMessage(message: RawData): Promise<void> {
     const rawMessage = toUtf8(message);
     let parsed: ProtectApiEventEnvelope;
 
@@ -194,19 +204,82 @@ export class ProtectApiIngestService {
       'Protect API raw event received.'
     );
 
-    this.logger.info(
+    const resolvedSource = await this.resolveProtectSource(normalized.cameraId, normalized.timestamp);
+    const normalizedEvent: ResolvedNormalizedProtectApiEvent = {
+      ...normalized,
+      resolvedSource
+    };
+
+    const diagnosticsContext = {
+      lifecycle,
+      normalizedEvent,
+      diagnosticsOnly: true,
+      unsupportedDetails: {
+        namedSmartZoneIdentityAvailable: false,
+        namedLineIdentityAvailable: false,
+        lineDirectionAvailable: false
+      }
+    };
+
+    if (resolvedSource) {
+      this.logger.info(
+        {
+          ...diagnosticsContext,
+          sourceResolution: {
+            status: 'resolved',
+            sourceType: resolvedSource.sourceType,
+            sourceId: resolvedSource.sourceId
+          }
+        },
+        'Protect API normalized event emitted with resolved source.'
+      );
+      return;
+    }
+
+    this.logger.warn(
       {
-        lifecycle,
-        normalizedEvent: normalized,
-        diagnosticsOnly: true,
-        unsupportedDetails: {
-          namedSmartZoneIdentityAvailable: false,
-          namedLineIdentityAvailable: false,
-          lineDirectionAvailable: false
+        ...diagnosticsContext,
+        sourceResolution: {
+          status: 'unresolved',
+          protectCameraId: normalized.cameraId,
+          reason: normalized.cameraId ? 'protect_source_not_found' : 'camera_id_missing'
         }
       },
-      'Protect API normalized event emitted.'
+      'Protect API normalized event emitted with unresolved source.'
     );
+  }
+
+  private async resolveProtectSource(
+    cameraId: string | null,
+    eventTimestamp: string
+  ): Promise<ProtectSourceResolutionContext | null> {
+    if (!cameraId) {
+      return null;
+    }
+
+    try {
+      const resolvedSource = await this.protectSourceSyncService.resolveSourceByCameraId(cameraId);
+      if (!resolvedSource) {
+        return null;
+      }
+
+      await this.protectSourceSyncService.markSourceEventSeen(resolvedSource.sourceId, eventTimestamp);
+
+      return {
+        ...resolvedSource,
+        lastEventSeenAt: eventTimestamp
+      };
+    } catch (error) {
+      this.logger.warn(
+        {
+          protectCameraId: cameraId,
+          eventTimestamp,
+          err: error
+        },
+        'Protect API source resolution failed; continuing ingest without resolved source.'
+      );
+      return null;
+    }
   }
 
   private scheduleReconnect(): void {

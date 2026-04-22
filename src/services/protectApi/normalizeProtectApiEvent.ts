@@ -21,6 +21,21 @@ export interface NormalizedProtectApiEvent {
   raw: ProtectApiEventEnvelope;
 }
 
+export interface ProtectSourceResolutionContext {
+  sourceType: 'protect_source';
+  sourceId: number;
+  protectCameraId: string;
+  name: string;
+  modelKey: string;
+  state: string;
+  lastSeenAt: string;
+  lastEventSeenAt: string | null;
+}
+
+export interface ResolvedNormalizedProtectApiEvent extends NormalizedProtectApiEvent {
+  resolvedSource: ProtectSourceResolutionContext | null;
+}
+
 function mapEventClass(eventType: string | null): NormalizedProtectApiEvent['eventClass'] {
   switch (eventType) {
     case 'smartDetectZone':
