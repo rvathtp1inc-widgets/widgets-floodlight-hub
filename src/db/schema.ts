@@ -126,6 +126,28 @@ export const protectSources = sqliteTable('protect_sources', {
   rawJson: text('raw_json')
 });
 
+export const accessUsers = sqliteTable('access_users', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  rawJson: text('raw_json'),
+  lastSeenAt: text('last_seen_at')
+});
+
+export const accessDoors = sqliteTable('access_doors', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  fullName: text('full_name'),
+  rawJson: text('raw_json'),
+  lastSeenAt: text('last_seen_at')
+});
+
+export const accessIngestState = sqliteTable('access_ingest_state', {
+  id: integer('id').primaryKey(),
+  lastTimestamp: text('last_timestamp'),
+  lastEventId: text('last_event_id'),
+  updatedAt: text('updated_at').notNull().default(now)
+});
+
 export const eventRoutes = sqliteTable('event_routes', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   sourceType: text('source_type').notNull(),

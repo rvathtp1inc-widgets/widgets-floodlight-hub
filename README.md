@@ -160,3 +160,9 @@ Manual validation:
    `Protect API raw event received.`
    `Protect API normalized event emitted.`
 4. Confirm existing webhook-triggered floodlight behavior still works through `GET|POST /api/webhooks/unifi/:webhookKey`.
+
+## Route evaluation foundation
+- Normalized ingress events from Protect API, Protect webhooks, and Access polling are published through the shared dispatcher.
+- A diagnostics-only route evaluator subscriber loads `event_routes`, evaluates the current source/class/type/object filters, and logs one route evaluation summary per normalized event.
+- The evaluator does not execute routes, trigger floodlights, call Shelly devices, emit downstream integrations, deduplicate events, correlate events, or enforce schedules/policy.
+- Access events are handled safely, but the current `event_routes` schema is source-based. Future Access routing will likely need additional match dimensions such as `doorId`, `userId`, `credentialProvider`, and `result`; this phase intentionally does not redesign the schema.

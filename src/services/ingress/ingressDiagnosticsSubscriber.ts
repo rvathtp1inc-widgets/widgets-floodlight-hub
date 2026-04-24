@@ -3,12 +3,19 @@ import { IngressEventDispatcher } from './ingressEventDispatcher.js';
 import { NormalizedIngressEvent } from './normalizedEvent.js';
 
 function buildSourceResolution(event: NormalizedIngressEvent) {
+  if (event.source === 'access') {
+    return {
+      status: 'not_applicable' as const,
+      reason: 'access_source_has_no_source_resolution'
+    };
+  }
+
   if (event.resolvedSource) {
     return {
       status: 'resolved' as const,
       sourceType: event.resolvedSource.sourceType,
       sourceId: event.resolvedSource.sourceId,
-      protectCameraId: event.resolvedSource.protectCameraId
+      protectCameraId: 'protectCameraId' in event.resolvedSource ? event.resolvedSource.protectCameraId : null
     };
   }
 
@@ -30,6 +37,7 @@ export function registerIngressDiagnosticsSubscriber(
   const diagnosticsLogger = logger.child({ service: 'ingressDispatcher' });
 
   return dispatcher.subscribe(async (event) => {
+    const sourceResolution = buildSourceResolution(event);
     const diagnosticsContext = {
       ingressType: event.ingressType,
       source: event.source,
@@ -37,13 +45,21 @@ export function registerIngressDiagnosticsSubscriber(
       normalizedEvent: event,
       resolvedSource: event.resolvedSource ?? null,
       precision: event.precision ?? null,
-      sourceResolution: buildSourceResolution(event)
+      sourceResolution
     };
 
-    if (event.resolvedSource) {
+    if (sourceResolution.status === 'resolved') {
       diagnosticsLogger.info(
         diagnosticsContext,
         'Unified ingress normalized event published with resolved source.'
+      );
+      return;
+    }
+
+    if (sourceResolution.status === 'not_applicable') {
+      diagnosticsLogger.info(
+        diagnosticsContext,
+        'Unified ingress normalized event published without source resolution requirements.'
       );
       return;
     }

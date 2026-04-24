@@ -9,11 +9,14 @@ import { groupRoutes } from './routes/groups.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { settingsRoutes } from './routes/settings.js';
 import { diagnosticsRoutes } from './routes/diagnostics.js';
+import { accessRoutes } from './routes/access.js';
 import { protectSourceRoutes } from './routes/protectSources.js';
 import { eventRouteRoutes } from './routes/eventRoutes.js';
+import { AccessIngestService } from './services/accessApi/accessIngestService.js';
 import { CloudSyncService } from './services/cloud/cloudSyncService.js';
 import { registerIngressDiagnosticsSubscriber } from './services/ingress/ingressDiagnosticsSubscriber.js';
 import { IngressEventDispatcher } from './services/ingress/ingressEventDispatcher.js';
+import { registerRouteEvaluatorSubscriber } from './services/ingress/routeEvaluatorSubscriber.js';
 import { ProtectApiIngestService } from './services/protectApi/protectApiIngestService.js';
 import { ProtectSourceSyncService } from './services/protectApi/protectSourceSyncService.js';
 import { TimerService } from './services/timers/timerService.js';
@@ -30,7 +33,9 @@ export function buildApp() {
   const cloudSyncService = new CloudSyncService(config.cloud, config.device, app.log);
   const ingressEventDispatcher = new IngressEventDispatcher();
   const protectSourceSyncService = new ProtectSourceSyncService(config.protectApi, app.log);
+  const accessIngestService = new AccessIngestService(config.access, app.log, ingressEventDispatcher);
   registerIngressDiagnosticsSubscriber(ingressEventDispatcher, app.log);
+  registerRouteEvaluatorSubscriber(ingressEventDispatcher, app.log);
   const protectApiIngestService = new ProtectApiIngestService(
     config.protectApi,
     app.log,
@@ -54,6 +59,7 @@ export function buildApp() {
     await webhookRoutes(instance, ingressEventDispatcher, protectSourceSyncService);
     await settingsRoutes(instance);
     await diagnosticsRoutes(instance, timerService, cloudSyncService);
+    await accessRoutes(instance, accessIngestService);
     await protectSourceRoutes(instance, protectSourceSyncService);
     await eventRouteRoutes(instance);
   });
@@ -77,12 +83,14 @@ export function buildApp() {
     rawDb.prepare('SELECT 1').get();
     timerService.start(config.timerPollSeconds);
     cloudSyncService.start();
+    accessIngestService.start();
     protectApiIngestService.start();
   });
 
   app.addHook('onClose', async () => {
     timerService.stop();
     cloudSyncService.stop();
+    accessIngestService.stop();
     protectApiIngestService.stop();
   });
 

@@ -46,6 +46,25 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     'updated_at',
     'raw_json'
   ],
+  access_users: [
+    'id',
+    'name',
+    'raw_json',
+    'last_seen_at'
+  ],
+  access_doors: [
+    'id',
+    'name',
+    'full_name',
+    'raw_json',
+    'last_seen_at'
+  ],
+  access_ingest_state: [
+    'id',
+    'last_timestamp',
+    'last_event_id',
+    'updated_at'
+  ],
   event_routes: [
     'id',
     'source_type',

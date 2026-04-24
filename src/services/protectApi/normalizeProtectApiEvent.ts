@@ -69,10 +69,17 @@ export function normalizeProtectApiEvent(raw: ProtectApiEventEnvelope): Normaliz
   return {
     source: 'protect_api',
     ingressType: 'api',
+    eventId: null,
     cameraId,
     eventType,
     eventClass: mapEventClass(eventType),
     objectTypes: toObjectTypes(item?.smartDetectTypes),
+    userId: null,
+    userName: null,
+    doorId: null,
+    doorName: null,
+    credentialProvider: null,
+    result: null,
     timestamp: toTimestamp(item?.start),
     raw,
     diagnosticsOnly: true

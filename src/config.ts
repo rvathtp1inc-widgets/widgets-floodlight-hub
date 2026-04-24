@@ -29,6 +29,14 @@ export interface ProtectApiConfig {
   apiKey: string;
 }
 
+export interface AccessConfig {
+  enabled: boolean;
+  apiBaseUrl: string;
+  apiKey: string;
+  pollIntervalMs: number;
+  backgroundPollingEnabled: boolean;
+}
+
 interface ProvisioningConfigFile {
   device?: {
     serialNumber?: unknown;
@@ -151,6 +159,13 @@ export const config = {
     baseUrl: process.env.PROTECT_API_BASE_URL?.trim() ?? '',
     apiKey: process.env.PROTECT_API_KEY?.trim() ?? ''
   } satisfies ProtectApiConfig,
+  access: {
+    enabled: process.env.ACCESS_ENABLED === 'true',
+    apiBaseUrl: process.env.ACCESS_API_BASE_URL?.trim() ?? '',
+    apiKey: process.env.ACCESS_API_KEY?.trim() ?? '',
+    pollIntervalMs: readNumber(process.env.ACCESS_POLL_INTERVAL_MS, 1000),
+    backgroundPollingEnabled: process.env.ACCESS_BACKGROUND_POLLING_ENABLED === 'true'
+  } satisfies AccessConfig,
   cloudConfigPath: defaultCloudConfigPath,
   device: provisioningConfig.device,
   cloud: provisioningConfig.cloud,
