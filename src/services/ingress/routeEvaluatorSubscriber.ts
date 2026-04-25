@@ -16,7 +16,7 @@ type NonMatchReason =
 
 type NonExecutableReason = 'unresolved' | 'disabled';
 
-type RouteEvaluationMatch = {
+export type RouteEvaluationMatch = {
   routeId: number;
   bindingStatus: string;
   enabled: boolean;
@@ -25,6 +25,16 @@ type RouteEvaluationMatch = {
   targetId: number | null;
   nonExecutableReason?: NonExecutableReason;
 };
+
+export interface RouteEvaluationResult {
+  event: NormalizedIngressEvent;
+  evaluatedRouteCount: number;
+  matchedRouteCount: number;
+  matches: RouteEvaluationMatch[];
+  nonMatchSummary: Record<NonMatchReason, number>;
+}
+
+export type RouteEvaluationHandler = (result: RouteEvaluationResult) => void | Promise<void>;
 
 const NON_MATCH_REASONS: NonMatchReason[] = [
   'missing_resolved_source',
@@ -135,7 +145,8 @@ function buildResolvedSourceDiagnostics(event: NormalizedIngressEvent) {
 
 export function registerRouteEvaluatorSubscriber(
   dispatcher: IngressEventDispatcher,
-  logger: FastifyBaseLogger
+  logger: FastifyBaseLogger,
+  routeExecutionHandler?: RouteEvaluationHandler
 ): () => void {
   const diagnosticsLogger = logger.child({ service: 'routeEvaluator' });
 
@@ -174,5 +185,15 @@ export function registerRouteEvaluatorSubscriber(
       },
       'Route evaluation diagnostics completed.'
     );
+
+    if (routeExecutionHandler) {
+      await routeExecutionHandler({
+        event,
+        evaluatedRouteCount: routes.length,
+        matchedRouteCount: matches.length,
+        matches,
+        nonMatchSummary
+      });
+    }
   });
 }

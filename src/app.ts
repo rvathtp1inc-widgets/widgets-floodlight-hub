@@ -12,6 +12,10 @@ import { diagnosticsRoutes } from './routes/diagnostics.js';
 import { accessRoutes } from './routes/access.js';
 import { protectSourceRoutes } from './routes/protectSources.js';
 import { eventRouteRoutes } from './routes/eventRoutes.js';
+import { registerExecutionPlannerSubscriber } from './services/execution/executionPlannerSubscriber.js';
+import { FloodlightExecutor } from './services/execution/floodlightExecutor.js';
+import { GroupExecutor } from './services/execution/groupExecutor.js';
+import { registerLifecycleExecutionGate } from './services/execution/lifecycleExecutionGate.js';
 import { AccessIngestService } from './services/accessApi/accessIngestService.js';
 import { CloudSyncService } from './services/cloud/cloudSyncService.js';
 import { registerIngressDiagnosticsSubscriber } from './services/ingress/ingressDiagnosticsSubscriber.js';
@@ -34,8 +38,17 @@ export function buildApp() {
   const ingressEventDispatcher = new IngressEventDispatcher();
   const protectSourceSyncService = new ProtectSourceSyncService(config.protectApi, app.log);
   const accessIngestService = new AccessIngestService(config.access, app.log, ingressEventDispatcher);
+  const routeExecutionHandler = registerExecutionPlannerSubscriber({
+    logger: app.log,
+    timerService,
+    executors: [new FloodlightExecutor(), new GroupExecutor()]
+  });
+  const lifecycleExecutionGate = registerLifecycleExecutionGate({
+    logger: app.log,
+    next: routeExecutionHandler
+  });
   registerIngressDiagnosticsSubscriber(ingressEventDispatcher, app.log);
-  registerRouteEvaluatorSubscriber(ingressEventDispatcher, app.log);
+  registerRouteEvaluatorSubscriber(ingressEventDispatcher, app.log, lifecycleExecutionGate);
   const protectApiIngestService = new ProtectApiIngestService(
     config.protectApi,
     app.log,
