@@ -138,17 +138,15 @@ export class CloudSyncService {
       this.logger.info('Starting heartbeat loop');
       this.schedule(() => this.runHeartbeat(), this.cloudConfig.heartbeatIntervalSeconds * 1000);
     } catch (error) {
-      const { status, message, responseBody } = this.getErrorDetails(error);
+      const { status, message } = this.getErrorDetails(error);
       this.status.bootstrap.state = 'failure';
       this.status.bootstrap.lastError = message;
       this.logger.warn(
         {
           status,
-          message,
-          responseBody,
-          err: error
+          message
         },
-        'Cloud bootstrap failure; local hub behavior continues.'
+        'Cloud bootstrap failure'
       );
       this.schedule(() => this.runBootstrap(), this.cloudConfig.heartbeatIntervalSeconds * 1000);
     }
@@ -189,18 +187,16 @@ export class CloudSyncService {
       this.logger.info({ deviceId: this.runtimeDeviceId }, 'Heartbeat success');
       this.schedule(() => this.runHeartbeat(), this.cloudConfig.heartbeatIntervalSeconds * 1000);
     } catch (error) {
-      const { status, message, responseBody } = this.getErrorDetails(error);
+      const { status, message } = this.getErrorDetails(error);
       this.status.heartbeat.state = 'failure';
       this.status.heartbeat.lastError = message;
       this.logger.warn(
         {
           status,
           message,
-          deviceId: this.runtimeDeviceId,
-          responseBody,
-          err: error
+          deviceId: this.runtimeDeviceId
         },
-        'Heartbeat failed'
+        'Heartbeat failure'
       );
       this.schedule(() => this.runHeartbeat(), this.cloudConfig.heartbeatIntervalSeconds * 1000);
     }
