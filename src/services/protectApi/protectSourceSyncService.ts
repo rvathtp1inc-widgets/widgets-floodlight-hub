@@ -5,6 +5,7 @@ import { ProtectApiConfig } from '../../config.js';
 import { db } from '../../db/client.js';
 import { protectSources } from '../../db/schema.js';
 import { ProtectSourceResolutionContext } from '../ingress/normalizedEvent.js';
+import { loadPersistedProtectApiConfig } from './protectApiSettings.js';
 
 const PROTECT_CAMERAS_PATH = '/proxy/protect/integration/v1/cameras';
 
@@ -106,6 +107,50 @@ function readCandidateStringArray(source: JsonObject, paths: string[]): string[]
 function readString(source: JsonObject, path: string): string | null {
   const value = getPathValue(source, path);
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function normalizeDeviceIdentifier(value: string): string {
+  return value.replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+function isCandidateDeviceIdentifierKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return normalized.includes('mac')
+    || normalized.includes('address')
+    || normalized.includes('device')
+    || normalized.includes('serial');
+}
+
+function rawJsonContainsDeviceIdentifier(value: unknown, normalizedIdentifier: string): boolean {
+  if (typeof value === 'string') {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => rawJsonContainsDeviceIdentifier(item, normalizedIdentifier));
+  }
+
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (isCandidateDeviceIdentifierKey(key)) {
+      if (typeof child === 'string' && normalizeDeviceIdentifier(child) === normalizedIdentifier) {
+        return true;
+      }
+
+      if (Array.isArray(child) && child.some((item) => typeof item === 'string' && normalizeDeviceIdentifier(item) === normalizedIdentifier)) {
+        return true;
+      }
+    }
+
+    if (rawJsonContainsDeviceIdentifier(child, normalizedIdentifier)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function hasTruthyValue(source: JsonObject, path: string): boolean {
@@ -217,7 +262,10 @@ function extractCameraArray(body: unknown): unknown[] {
 export class ProtectSourceSyncService {
   private readonly logger: FastifyBaseLogger;
 
-  constructor(private readonly protectApiConfig: ProtectApiConfig, logger: FastifyBaseLogger) {
+  constructor(
+    logger: FastifyBaseLogger,
+    private readonly loadProtectApiConfig: () => Promise<ProtectApiConfig> = loadPersistedProtectApiConfig
+  ) {
     this.logger = logger.child({ service: 'protectSourceSync' });
   }
 
@@ -262,6 +310,76 @@ export class ProtectSourceSyncService {
     };
   }
 
+  async resolveSourceByDeviceIdentifier(deviceIdentifier: string): Promise<ProtectSourceResolutionContext | null> {
+    const normalizedIdentifier = normalizeDeviceIdentifier(deviceIdentifier);
+    if (!normalizedIdentifier) {
+      return null;
+    }
+
+    const byCameraId = await this.resolveSourceByCameraId(deviceIdentifier);
+    if (byCameraId) {
+      return byCameraId;
+    }
+
+    const rows = await db
+      .select({
+        id: protectSources.id,
+        protectCameraId: protectSources.protectCameraId,
+        name: protectSources.name,
+        modelKey: protectSources.modelKey,
+        state: protectSources.state,
+        lastSeenAt: protectSources.lastSeenAt,
+        lastEventSeenAt: protectSources.lastEventSeenAt,
+        rawJson: protectSources.rawJson
+      })
+      .from(protectSources);
+
+    const matches = [];
+    for (const row of rows) {
+      if (!row.rawJson) {
+        continue;
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(row.rawJson) as unknown;
+      } catch {
+        continue;
+      }
+
+      if (rawJsonContainsDeviceIdentifier(parsed, normalizedIdentifier)) {
+        matches.push(row);
+      }
+    }
+
+    if (matches.length !== 1) {
+      if (matches.length > 1) {
+        this.logger.warn(
+          {
+            deviceIdentifier,
+            normalizedIdentifier,
+            matchedSourceIds: matches.map((row) => row.id)
+          },
+          'Protect webhook device identifier matched multiple raw protect sources; source left unresolved.'
+        );
+      }
+
+      return null;
+    }
+
+    const source = matches[0];
+    return {
+      sourceType: 'protect_source',
+      sourceId: source.id,
+      protectCameraId: source.protectCameraId,
+      name: source.name,
+      modelKey: source.modelKey,
+      state: source.state,
+      lastSeenAt: source.lastSeenAt,
+      lastEventSeenAt: source.lastEventSeenAt
+    };
+  }
+
   async markSourceEventSeen(sourceId: number, seenAt: string): Promise<void> {
     await db
       .update(protectSources)
@@ -272,22 +390,24 @@ export class ProtectSourceSyncService {
   }
 
   async syncSources(): Promise<ProtectSourceSyncResult> {
-    if (!this.protectApiConfig.enabled) {
+    const protectApiConfig = await this.loadProtectApiConfig();
+
+    if (!protectApiConfig.enabled) {
       throw new Error('Protect API sync is disabled.');
     }
 
-    if (!this.protectApiConfig.baseUrl) {
+    if (!protectApiConfig.baseUrl) {
       throw new Error('Protect API base URL is not configured.');
     }
 
-    if (!this.protectApiConfig.apiKey) {
+    if (!protectApiConfig.apiKey) {
       throw new Error('Protect API key is not configured.');
     }
 
-    const response = await fetch(buildProtectUrl(this.protectApiConfig.baseUrl, PROTECT_CAMERAS_PATH), {
+    const response = await fetch(buildProtectUrl(protectApiConfig.baseUrl, PROTECT_CAMERAS_PATH), {
       method: 'GET',
       headers: {
-        'X-API-KEY': this.protectApiConfig.apiKey,
+        'X-API-KEY': protectApiConfig.apiKey,
         accept: 'application/json'
       }
     });

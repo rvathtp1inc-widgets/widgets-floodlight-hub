@@ -5,8 +5,32 @@ import { eventRoutes, floodlights, groups, protectSources } from '../db/schema.j
 
 const VALID_SOURCE_TYPES = new Set(['protect_source']);
 const VALID_TARGET_TYPES = new Set(['floodlight', 'group']);
-const VALID_EVENT_CLASSES = new Set(['zone', 'line', 'motion', 'audio', 'unknown']);
+const VALID_EVENT_CLASSES = new Set(['motion', 'zone', 'line', 'audio', 'loiter']);
 const VALID_BINDING_STATUSES = new Set(['resolved', 'unresolved']);
+const UPSTREAM_EVENT_TYPES_BY_CLASS: Record<string, string> = {
+  motion: 'motion',
+  zone: 'smartDetectZone',
+  line: 'smartDetectLine',
+  audio: 'smartAudioDetect',
+  loiter: 'smartDetectLoiter'
+};
+const OBJECT_TYPES_BY_CLASS: Record<string, Set<string>> = {
+  motion: new Set(),
+  zone: new Set(['person', 'vehicle', 'package', 'licensePlate', 'face', 'animal']),
+  line: new Set(['person', 'vehicle', 'package', 'licensePlate', 'face', 'animal']),
+  loiter: new Set(['person', 'vehicle', 'package', 'licensePlate', 'face', 'animal']),
+  audio: new Set([
+    'alarmSmoke',
+    'alarmCmonx',
+    'alarmSiren',
+    'alarmBabyCry',
+    'alarmSpeak',
+    'alarmBark',
+    'alarmBurglar',
+    'alarmCarHorn',
+    'alarmGlassBreak'
+  ])
+};
 
 type BindingStatus = 'resolved' | 'unresolved';
 type RouteBody = Record<string, unknown>;
@@ -158,7 +182,17 @@ function serializeObjectTypes(objectTypes: string[] | null | undefined): string 
     return null;
   }
 
+  if (objectTypes.length === 0) {
+    return null;
+  }
+
   return JSON.stringify(objectTypes);
+}
+
+function normalizeDraftForEventClass(route: EventRouteDraft): void {
+  if (route.eventClass === 'motion') {
+    route.objectTypesJson = null;
+  }
 }
 
 async function assertSourceReferenceExists(sourceType: string, sourceId: number) {
@@ -191,6 +225,20 @@ async function assertTargetReferenceExists(targetType: string, targetId: number)
 async function validateRouteDraft(route: EventRouteDraft) {
   if (!VALID_EVENT_CLASSES.has(route.eventClass)) {
     throw new Error(`eventClass must be one of: ${[...VALID_EVENT_CLASSES].join(', ')}`);
+  }
+
+  const expectedUpstreamType = UPSTREAM_EVENT_TYPES_BY_CLASS[route.eventClass];
+  if (route.upstreamEventType !== null && route.upstreamEventType !== expectedUpstreamType) {
+    throw new Error(`upstreamEventType for ${route.eventClass} must be ${expectedUpstreamType} or null`);
+  }
+
+  const allowedObjectTypes = OBJECT_TYPES_BY_CLASS[route.eventClass];
+  const routeObjectTypes = parseJsonStringArray(route.objectTypesJson);
+  if (route.eventClass !== 'motion' && routeObjectTypes !== null) {
+    const invalidObjectType = routeObjectTypes.find((objectType) => !allowedObjectTypes.has(objectType));
+    if (invalidObjectType) {
+      throw new Error(`objectTypes contains invalid ${route.eventClass} type: ${invalidObjectType}`);
+    }
   }
 
   await assertSourceReferenceExists(route.sourceType, route.sourceId);
@@ -284,6 +332,7 @@ export async function eventRouteRoutes(app: FastifyInstance) {
         notes
       };
 
+      normalizeDraftForEventClass(route);
       await validateRouteDraft(route);
 
       const inserted = await db.insert(eventRoutes).values(route).returning();
@@ -363,6 +412,11 @@ export async function eventRouteRoutes(app: FastifyInstance) {
       if (request.body.notes !== undefined) {
         nextRoute.notes = readOptionalString(request.body, 'notes') ?? null;
         updates.notes = nextRoute.notes;
+      }
+
+      normalizeDraftForEventClass(nextRoute);
+      if (nextRoute.eventClass === 'motion') {
+        updates.objectTypesJson = null;
       }
 
       await validateRouteDraft(nextRoute);

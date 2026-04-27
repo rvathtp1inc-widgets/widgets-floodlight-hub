@@ -177,6 +177,7 @@ export function registerRouteEvaluatorSubscriber(
         eventId: event.eventId,
         eventType: event.eventType,
         eventClass: event.eventClass,
+        objectTypes: event.objectTypes,
         resolvedSource: buildResolvedSourceDiagnostics(event),
         evaluatedRouteCount: routes.length,
         matchedRouteCount: matches.length,

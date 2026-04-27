@@ -8,6 +8,7 @@ import { IngressEventDispatcher } from '../ingress/ingressEventDispatcher.js';
 import { ProtectSourceSyncService } from '../protectApi/protectSourceSyncService.js';
 import {
   extractWebhookCameraId,
+  extractWebhookDeviceIdentifier,
   normalizeWebhookEvent
 } from './normalizeWebhookEvent.js';
 
@@ -37,31 +38,39 @@ export async function handleGroupWebhook(input: {
   const receivedAt = new Date().toISOString();
 
   const cameraId = extractWebhookCameraId(input.payload);
+  const webhookDeviceIdentifier = extractWebhookDeviceIdentifier(input.payload);
   let resolvedSource = null;
 
-  if (cameraId) {
+  if (webhookDeviceIdentifier) {
     try {
-      resolvedSource = await input.protectSourceSyncService.resolveSourceByCameraId(cameraId);
+      resolvedSource = await input.protectSourceSyncService.resolveSourceByDeviceIdentifier(webhookDeviceIdentifier);
       if (resolvedSource) {
         input.logger.info(
           {
             webhookKey: input.webhookKey,
             cameraId,
+            webhookDeviceIdentifier,
             targetHintType: targetType,
             targetHintId: targetId,
-            resolvedSourceId: resolvedSource.sourceId
+            resolvedSource: {
+              sourceType: resolvedSource.sourceType,
+              sourceId: resolvedSource.sourceId,
+              protectCameraId: resolvedSource.protectCameraId
+            }
           },
-          'Webhook camera resolved to a protect source before unified ingress publish.'
+          'Webhook device identifier resolved to a protect source before unified ingress publish.'
         );
       } else {
         input.logger.warn(
           {
             webhookKey: input.webhookKey,
             cameraId,
+            webhookDeviceIdentifier,
             targetHintType: targetType,
-            targetHintId: targetId
+            targetHintId: targetId,
+            unresolvedReason: 'protect_source_not_found_for_webhook_device_identifier'
           },
-          'Webhook camera id did not resolve to a protect source; continuing normalization.'
+          'Webhook device identifier did not resolve to a protect source; continuing normalization.'
         );
       }
     } catch (error) {
@@ -69,6 +78,7 @@ export async function handleGroupWebhook(input: {
         {
           webhookKey: input.webhookKey,
           cameraId,
+          webhookDeviceIdentifier,
           err: error
         },
         'Webhook source resolution failed; continuing normalization without resolved source.'
@@ -79,9 +89,10 @@ export async function handleGroupWebhook(input: {
       {
         webhookKey: input.webhookKey,
         targetHintType: targetType,
-        targetHintId: targetId
+        targetHintId: targetId,
+        unresolvedReason: 'webhook_device_identifier_missing'
       },
-      'Webhook payload did not include a usable camera id; continuing normalization without resolved source.'
+      'Webhook payload did not include a usable device identifier; continuing normalization without resolved source.'
     );
   }
 
@@ -95,13 +106,37 @@ export async function handleGroupWebhook(input: {
     resolvedSource
   });
 
+  input.logger.info(
+    {
+      webhookKey: input.webhookKey,
+      webhookDeviceIdentifier,
+      cameraId: normalizedEvent.cameraId,
+      eventClass: normalizedEvent.eventClass,
+      eventType: normalizedEvent.eventType,
+      objectTypes: normalizedEvent.objectTypes,
+      resolvedSource: resolvedSource
+        ? {
+          sourceType: resolvedSource.sourceType,
+          sourceId: resolvedSource.sourceId,
+          protectCameraId: resolvedSource.protectCameraId
+        }
+        : null,
+      unresolvedReason: resolvedSource
+        ? null
+        : webhookDeviceIdentifier
+          ? 'protect_source_not_found_for_webhook_device_identifier'
+          : 'webhook_device_identifier_missing'
+    },
+    'Webhook normalized event prepared for unified ingress dispatcher.'
+  );
+
   await input.ingressEventDispatcher.publish(normalizedEvent);
 
-  const diagnosticsReason = !targetType
+  const ingressRejectedReason = !targetType
     ? 'target_not_found'
     : !sharedSecretValidated
       ? 'invalid_secret'
-      : 'diagnostics_only_phase';
+      : null;
 
   await insertEventLogWithRetention({
     webhookKey: input.webhookKey,
@@ -112,8 +147,8 @@ export async function handleGroupWebhook(input: {
     headerSummary: JSON.stringify({ [headerName]: providedSecret ? 'present' : 'missing' }),
     payloadRaw: input.payload ? JSON.stringify(input.payload) : null,
     authResult: sharedSecretValidated ? 'valid' : 'invalid',
-    decision: 'rejected',
-    decisionReason: diagnosticsReason
+    decision: ingressRejectedReason ? 'rejected' : 'accepted',
+    decisionReason: ingressRejectedReason ?? 'ingress_received_normalized'
   });
 
   return {
@@ -121,7 +156,7 @@ export async function handleGroupWebhook(input: {
     floodlightId: floodlight?.id,
     webhookKey: input.webhookKey,
     accepted: false,
-    reason: diagnosticsReason,
+    reason: ingressRejectedReason ?? 'diagnostics_only_phase',
     diagnosticsOnly: true,
     published: true,
     cameraId: normalizedEvent.cameraId,

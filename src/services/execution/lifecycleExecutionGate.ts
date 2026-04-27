@@ -183,6 +183,10 @@ export function registerLifecycleExecutionGate(input: {
 
     if (!lifecycleGate.triggerAllowed) {
       logSkippedExecutableMatches(diagnosticsLogger, evaluation.matches, lifecycleGate.skipReason);
+      await input.next({
+        ...evaluation,
+        lifecycleGate
+      });
       return;
     }
 

@@ -36,7 +36,7 @@ export function buildApp() {
   const timerService = new TimerService();
   const cloudSyncService = new CloudSyncService(config.cloud, config.device, app.log);
   const ingressEventDispatcher = new IngressEventDispatcher();
-  const protectSourceSyncService = new ProtectSourceSyncService(config.protectApi, app.log);
+  const protectSourceSyncService = new ProtectSourceSyncService(app.log);
   const accessIngestService = new AccessIngestService(config.access, app.log, ingressEventDispatcher);
   const routeExecutionHandler = registerExecutionPlannerSubscriber({
     logger: app.log,
@@ -50,7 +50,6 @@ export function buildApp() {
   registerIngressDiagnosticsSubscriber(ingressEventDispatcher, app.log);
   registerRouteEvaluatorSubscriber(ingressEventDispatcher, app.log, lifecycleExecutionGate);
   const protectApiIngestService = new ProtectApiIngestService(
-    config.protectApi,
     app.log,
     protectSourceSyncService,
     ingressEventDispatcher
@@ -63,7 +62,6 @@ export function buildApp() {
   app.register(fastifyStatic, {
     root: frontendDistPath,
     prefix: '/',
-    decorateReply: false,
   });
 
   app.register(async (instance) => {
@@ -97,7 +95,7 @@ export function buildApp() {
     timerService.start(config.timerPollSeconds);
     cloudSyncService.start();
     accessIngestService.start();
-    protectApiIngestService.start();
+    await protectApiIngestService.start();
   });
 
   app.addHook('onClose', async () => {

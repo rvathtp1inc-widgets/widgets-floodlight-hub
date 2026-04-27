@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
+    "test": "tsx --test tests/*.test.ts",
     "check": "tsc --noEmit",
     "db:verify": "tsx src/db/verifySchema.ts"
   },

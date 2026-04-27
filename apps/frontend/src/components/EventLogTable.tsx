@@ -21,6 +21,55 @@ function toDate(value?: string) {
   return parsed.toLocaleString();
 }
 
+function eventStageLabel(item: EventLogItem) {
+  const method = item.httpMethod ?? '—';
+  if (method === 'POST') {
+    return 'POST / WEBHOOK_RECEIVED';
+  }
+  if (method === 'ROUTE_WEBHOOK') {
+    return 'ROUTE_WEBHOOK / EXECUTION';
+  }
+  return method;
+}
+
+function resultPill(item: EventLogItem) {
+  const normalized = (item.decision ?? '').toLowerCase();
+  const method = item.httpMethod ?? '';
+  const reason = item.decisionReason ?? '';
+  if (method === 'POST' && normalized.includes('accept') && reason === 'ingress_received_normalized') {
+    return (
+      <span className="inline-flex rounded border border-sky-600/40 bg-sky-900/50 px-2 py-0.5 text-xs font-semibold text-sky-200">
+        ingress accepted
+      </span>
+    );
+  }
+  if (normalized.includes('accept')) {
+    return <span className="inline-flex rounded border border-emerald-600/40 bg-emerald-900/50 px-2 py-0.5 text-xs font-semibold text-emerald-200">accepted</span>;
+  }
+  if (normalized.includes('reject')) {
+    return <span className="inline-flex rounded border border-red-600/40 bg-red-900/50 px-2 py-0.5 text-xs font-semibold text-red-200">rejected</span>;
+  }
+  return <span>{item.decision ?? '—'}</span>;
+}
+
+function routeIdFromHeaderSummary(headerSummary?: string | null) {
+  if (!headerSummary) return null;
+
+  try {
+    const parsed = JSON.parse(headerSummary) as { routeId?: unknown };
+    return typeof parsed.routeId === 'number' ? parsed.routeId : null;
+  } catch {
+    return null;
+  }
+}
+
+function routeIngressLabel(item: EventLogItem) {
+  const routeId = routeIdFromHeaderSummary(item.headerSummary);
+  if (routeId !== null) return `route:${routeId}`;
+  if (item.webhookKey?.startsWith('route:')) return item.webhookKey;
+  return item.webhookKey ?? '—';
+}
+
 export function EventLogTable({
   events,
   searchText,
@@ -54,6 +103,7 @@ export function EventLogTable({
         item.targetName,
         item.targetType,
         item.targetId ? `#${item.targetId}` : null,
+        routeIngressLabel(item),
         item.webhookKey,
         item.remoteIp,
         item.decisionReason,
@@ -68,17 +118,6 @@ export function EventLogTable({
       return true;
     });
   }, [events, filter, normalizedSearch]);
-
-  const resultPill = (decision?: string) => {
-    const normalized = (decision ?? '').toLowerCase();
-    if (normalized.includes('accept')) {
-      return <span className="inline-flex rounded border border-emerald-600/40 bg-emerald-900/50 px-2 py-0.5 text-xs font-semibold text-emerald-200">accepted</span>;
-    }
-    if (normalized.includes('reject')) {
-      return <span className="inline-flex rounded border border-red-600/40 bg-red-900/50 px-2 py-0.5 text-xs font-semibold text-red-200">rejected</span>;
-    }
-    return <span>{decision ?? '—'}</span>;
-  };
 
   return (
     <section className="rounded-lg border border-slate-700 bg-slate-900/70 p-4">
@@ -133,7 +172,7 @@ export function EventLogTable({
                 <th className="px-2 py-2">Time</th>
                 <th className="px-2 py-2">Type</th>
                 <th className="px-2 py-2">Target</th>
-                <th className="px-2 py-2">Webhook</th>
+                <th className="px-2 py-2">Route / Ingress</th>
                 <th className="px-2 py-2">Result</th>
                 <th className="px-2 py-2">Reason</th>
                 <th className="px-2 py-2">Source</th>
@@ -143,14 +182,14 @@ export function EventLogTable({
               {visibleEvents.map((item) => (
                 <tr key={item.id} className="border-t border-slate-800">
                   <td className="px-2 py-2 whitespace-nowrap">{toDate(item.receivedAt ?? item.createdAt)}</td>
-                  <td className="px-2 py-2">{item.httpMethod ?? '—'}</td>
+                  <td className="px-2 py-2">{eventStageLabel(item)}</td>
                   <td className="px-2 py-2">
                     {item.targetName ?? item.targetType ?? 'unknown'}
                     {item.targetId ? <span className="ml-1 text-xs text-slate-400">(#{item.targetId})</span> : null}
                   </td>
-                  <td className="px-2 py-2">{item.webhookKey ?? '—'}</td>
+                  <td className="px-2 py-2">{routeIngressLabel(item)}</td>
                   <td className="px-2 py-2">
-                    {resultPill(item.decision)}
+                    {resultPill(item)}
                     {item.authResult ? ` / ${item.authResult}` : ''}
                   </td>
                   <td className="px-2 py-2">{item.decisionReason ?? '—'}</td>

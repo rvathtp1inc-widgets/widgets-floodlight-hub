@@ -8,6 +8,7 @@ import {
   ProtectApiEventEnvelope,
   ResolvedNormalizedProtectApiEvent
 } from './normalizeProtectApiEvent.js';
+import { loadPersistedProtectApiConfig } from './protectApiSettings.js';
 import { ProtectSourceSyncService } from './protectSourceSyncService.js';
 
 const PROTECT_API_EVENTS_PATH = '/proxy/protect/integration/v1/subscribe/events';
@@ -58,25 +59,30 @@ export class ProtectApiIngestService {
   private socket?: WebSocket;
   private reconnectTimeout?: NodeJS.Timeout;
   private stopped = false;
+  private protectApiConfig: ProtectApiConfig = { enabled: false, baseUrl: '', apiKey: '' };
 
   constructor(
-    private readonly protectApiConfig: ProtectApiConfig,
     logger: FastifyBaseLogger,
     private readonly protectSourceSyncService: ProtectSourceSyncService,
-    private readonly ingressEventDispatcher: IngressEventDispatcher
+    private readonly ingressEventDispatcher: IngressEventDispatcher,
+    private readonly loadProtectApiConfig: () => Promise<ProtectApiConfig> = loadPersistedProtectApiConfig
   ) {
     this.logger = logger.child({ service: 'protectApiIngest' });
     this.status = {
-      enabled: protectApiConfig.enabled,
+      enabled: false,
       connected: false,
-      configuredBaseUrl: protectApiConfig.baseUrl,
+      configuredBaseUrl: '',
       reconnectAttempts: 0
     };
   }
 
-  start(): void {
+  async start(): Promise<void> {
+    this.protectApiConfig = await this.loadProtectApiConfig();
+    this.status.enabled = this.protectApiConfig.enabled;
+    this.status.configuredBaseUrl = this.protectApiConfig.baseUrl;
+
     if (!this.protectApiConfig.enabled) {
-      this.logger.info('Protect API ingest disabled in config.');
+      this.logger.info('Protect API ingest disabled in persisted settings.');
       return;
     }
 

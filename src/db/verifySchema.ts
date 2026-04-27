@@ -65,6 +65,21 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     'last_event_id',
     'updated_at'
   ],
+  hub_settings: [
+    'id',
+    'timezone',
+    'latitude',
+    'longitude',
+    'astro_enabled',
+    'default_webhook_header_name',
+    'protect_api_enabled',
+    'protect_console_host',
+    'protect_api_key_encrypted',
+    'ui_session_timeout_minutes',
+    'log_retention_days',
+    'created_at',
+    'updated_at'
+  ],
   event_routes: [
     'id',
     'source_type',

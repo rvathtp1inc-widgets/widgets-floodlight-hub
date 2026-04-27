@@ -58,9 +58,7 @@ Server defaults to `http://0.0.0.0:8787`.
 - `APP_ENCRYPTION_KEY`: used for encrypted Shelly passwords/shared webhook secret
 - `TIMER_POLL_SECONDS`: timer loop poll interval
 - `REQUEST_TIMEOUT_MS`: Shelly RPC timeout
-- `PROTECT_API_ENABLED`: enable UniFi Protect API/WebSocket diagnostics ingest. Default: `false`
-- `PROTECT_API_BASE_URL`: Protect base URL such as `https://protect.local`
-- `PROTECT_API_KEY`: UniFi Protect API key used as the `X-API-KEY` websocket header
+- UniFi Protect API settings are configured in the Settings page and persisted in SQLite.
 - `FLOODLIGHT_HUB_CONFIG_PATH`: optional override for provisioning config path. Default: `/usr/local/widgets-data/floodlighthub.json`
 
 ## Cloud provisioning config
@@ -153,7 +151,7 @@ Confirmed findings from live payload observation:
 - Webhooks remain necessary for zone-specific or line-specific routing needs.
 
 Manual validation:
-1. Set `PROTECT_API_ENABLED=true`, `PROTECT_API_BASE_URL`, and `PROTECT_API_KEY` in `.env`.
+1. Configure UniFi Protect API integration in the Settings page.
 2. Start the backend with `npm run dev` or rebuild with `npm run build && npm start`.
 3. Trigger Protect events and watch backend logs for:
    `Protect API websocket connected.`

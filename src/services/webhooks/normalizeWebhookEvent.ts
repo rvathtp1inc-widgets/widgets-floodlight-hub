@@ -81,6 +81,39 @@ function readStringArray(source: unknown, paths: string[]): string[] {
   return [];
 }
 
+function readArray(source: unknown, path: string): unknown[] {
+  if (!isPlainObject(source)) {
+    return [];
+  }
+
+  const value = getPathValue(source, path);
+  return Array.isArray(value) ? value : [];
+}
+
+function hasEntries(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function getAlarmSources(payload: unknown): JsonObject[] {
+  return readArray(payload, 'alarm.sources').filter(isPlainObject);
+}
+
+function inferAlarmManagerEventType(payload: unknown): string | null {
+  for (const source of getAlarmSources(payload)) {
+    const zones = getPathValue(source, 'zones.zone');
+    if (hasEntries(zones)) {
+      return 'smartDetectZone';
+    }
+
+    const lines = getPathValue(source, 'zones.line');
+    if (hasEntries(lines)) {
+      return 'smartDetectLine';
+    }
+  }
+
+  return null;
+}
+
 function toIsoTimestamp(value: unknown, fallback: string): string {
   if (typeof value === 'string' && value.trim()) {
     const timestamp = new Date(value);
@@ -148,6 +181,11 @@ function extractTimestamp(payload: unknown, fallback: string): string {
 }
 
 function extractEventType(payload: unknown): string | null {
+  const alarmManagerEventType = inferAlarmManagerEventType(payload);
+  if (alarmManagerEventType) {
+    return alarmManagerEventType;
+  }
+
   const direct = readString(payload, [
     'eventType',
     'event_type',
@@ -165,6 +203,21 @@ function extractEventType(payload: unknown): string | null {
 }
 
 function extractObjectTypes(payload: unknown): string[] {
+  const alarmConditions = readArray(payload, 'alarm.conditions');
+  if (alarmConditions.length > 0) {
+    const deduped = new Set<string>();
+    for (const condition of alarmConditions) {
+      const source = readString(condition, ['condition.source']);
+      if (source) {
+        deduped.add(source);
+      }
+    }
+
+    if (deduped.size > 0) {
+      return [...deduped];
+    }
+  }
+
   const list = readStringArray(payload, [
     'smartDetectTypes',
     'smart_detect_types',
@@ -182,6 +235,13 @@ function extractObjectTypes(payload: unknown): string[] {
 }
 
 export function extractWebhookCameraId(payload: unknown): string | null {
+  for (const source of getAlarmSources(payload)) {
+    const device = readString(source, ['device']);
+    if (device) {
+      return device;
+    }
+  }
+
   return readString(payload, [
     'cameraId',
     'camera_id',
@@ -195,6 +255,10 @@ export function extractWebhookCameraId(payload: unknown): string | null {
     'alarm.cameraId',
     'alarm.camera_id'
   ]);
+}
+
+export function extractWebhookDeviceIdentifier(payload: unknown): string | null {
+  return extractWebhookCameraId(payload);
 }
 
 export function normalizeWebhookEvent(input: WebhookEventNormalizationInput): NormalizedWebhookEvent {
