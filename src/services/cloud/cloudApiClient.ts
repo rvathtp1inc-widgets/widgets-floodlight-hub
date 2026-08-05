@@ -62,8 +62,8 @@ export class CloudApiClient {
       body: JSON.stringify({
         serialNumber: device.serialNumber,
         deviceSecret: device.deviceSecret,
-        model: device.model,
-        firmwareVersion: device.firmwareVersion
+        model: 'widgets-floodlight-hub',
+        firmwareVersion: '0.1.0'
       })
     });
 

@@ -2,6 +2,8 @@
 
 Local-first backend for Raspberry Pi deployment. It receives UniFi Protect webhooks, evaluates hub-managed policy, controls Shelly 1 Mini Gen4 relays via local RPC, and maintains active timers in SQLite.
 
+Webhook ingestion remains the current production path. A backend-only UniFi Protect API/WebSocket ingest POC is also available for diagnostics, but it does not route events into floodlight actions yet.
+
 ## Stack
 - Node.js + TypeScript
 - Fastify
@@ -56,6 +58,7 @@ Server defaults to `http://0.0.0.0:8787`.
 - `APP_ENCRYPTION_KEY`: used for encrypted Shelly passwords/shared webhook secret
 - `TIMER_POLL_SECONDS`: timer loop poll interval
 - `REQUEST_TIMEOUT_MS`: Shelly RPC timeout
+- UniFi Protect API settings are configured in the Settings page and persisted in SQLite.
 - `FLOODLIGHT_HUB_CONFIG_PATH`: optional override for provisioning config path. Default: `/usr/local/widgets-data/floodlighthub.json`
 
 ## Cloud provisioning config
@@ -130,3 +133,34 @@ sudo systemctl start widgets-floodlight-hub
 - Group retriggers refresh full auto-off timer duration.
 - Timer expiry turns off group members, except floodlights in `force_on` override.
 - Shelly standardization disables `auto_off` and `auto_on` for relay id `0`.
+
+## UniFi Protect API ingest POC
+- Connects to `/proxy/protect/integration/v1/subscribe/events` with `X-API-KEY`.
+- Disabled by default and kept separate from the working webhook path.
+- Logs raw websocket payloads and emits diagnostics-only normalized events.
+- Reconnects with basic exponential backoff after disconnects.
+
+Confirmed findings from live payload observation:
+- API websocket ingest is viable and returns real-time event messages.
+- `item.device` maps to the Protect camera/device id.
+- Observed event classes include zone, line, motion, and audio via `item.type`.
+- Object and audio classifications are available via `item.smartDetectTypes`.
+- Event lifecycle is visible through websocket envelope `type` values such as `add` and `update`, plus optional `item.end`.
+- Named smart-zone identity was not observed in payloads.
+- Named line identity and line direction were not observed in payloads.
+- Webhooks remain necessary for zone-specific or line-specific routing needs.
+
+Manual validation:
+1. Configure UniFi Protect API integration in the Settings page.
+2. Start the backend with `npm run dev` or rebuild with `npm run build && npm start`.
+3. Trigger Protect events and watch backend logs for:
+   `Protect API websocket connected.`
+   `Protect API raw event received.`
+   `Protect API normalized event emitted.`
+4. Confirm existing webhook-triggered floodlight behavior still works through `GET|POST /api/webhooks/unifi/:webhookKey`.
+
+## Route evaluation foundation
+- Normalized ingress events from Protect API, Protect webhooks, and Access polling are published through the shared dispatcher.
+- A diagnostics-only route evaluator subscriber loads `event_routes`, evaluates the current source/class/type/object filters, and logs one route evaluation summary per normalized event.
+- The evaluator does not execute routes, trigger floodlights, call Shelly devices, emit downstream integrations, deduplicate events, correlate events, or enforce schedules/policy.
+- Access events are handled safely, but the current `event_routes` schema is source-based. Future Access routing will likely need additional match dimensions such as `doorId`, `userId`, `credentialProvider`, and `result`; this phase intentionally does not redesign the schema.

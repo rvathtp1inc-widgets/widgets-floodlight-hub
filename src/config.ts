@@ -23,6 +23,20 @@ export interface CloudConfig {
   heartbeatIntervalSeconds: number;
 }
 
+export interface ProtectApiConfig {
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string;
+}
+
+export interface AccessConfig {
+  enabled: boolean;
+  apiBaseUrl: string;
+  apiKey: string;
+  pollIntervalMs: number;
+  backgroundPollingEnabled: boolean;
+}
+
 interface ProvisioningConfigFile {
   device?: {
     serialNumber?: unknown;
@@ -140,6 +154,13 @@ export const config = {
   encryptionKey: process.env.APP_ENCRYPTION_KEY ?? 'dev-only-key-change-me',
   timerPollSeconds: readNumber(process.env.TIMER_POLL_SECONDS, 5),
   requestTimeoutMs: readNumber(process.env.REQUEST_TIMEOUT_MS, 5000),
+  access: {
+    enabled: process.env.ACCESS_ENABLED === 'true',
+    apiBaseUrl: process.env.ACCESS_API_BASE_URL?.trim() ?? '',
+    apiKey: process.env.ACCESS_API_KEY?.trim() ?? '',
+    pollIntervalMs: readNumber(process.env.ACCESS_POLL_INTERVAL_MS, 1000),
+    backgroundPollingEnabled: process.env.ACCESS_BACKGROUND_POLLING_ENABLED === 'true'
+  } satisfies AccessConfig,
   cloudConfigPath: defaultCloudConfigPath,
   device: provisioningConfig.device,
   cloud: provisioningConfig.cloud,

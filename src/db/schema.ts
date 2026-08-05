@@ -105,8 +105,62 @@ export const hubSettings = sqliteTable('hub_settings', {
   longitude: text('longitude'),
   astroEnabled: integer('astro_enabled', { mode: 'boolean' }).notNull().default(false),
   defaultWebhookHeaderName: text('default_webhook_header_name').notNull().default('X-Widgets-Secret'),
+  protectApiEnabled: integer('protect_api_enabled', { mode: 'boolean' }).notNull().default(false),
+  protectConsoleHost: text('protect_console_host'),
+  protectApiKeyEncrypted: text('protect_api_key_encrypted'),
   uiSessionTimeoutMinutes: integer('ui_session_timeout_minutes').notNull().default(60),
   logRetentionDays: integer('log_retention_days').notNull().default(30),
   createdAt: text('created_at').notNull().default(now),
   updatedAt: text('updated_at').notNull().default(now)
+});
+
+export const protectSources = sqliteTable('protect_sources', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  protectCameraId: text('protect_camera_id').notNull().unique(),
+  name: text('name').notNull(),
+  modelKey: text('model_key').notNull(),
+  state: text('state').notNull(),
+  supportsSmartDetect: integer('supports_smart_detect', { mode: 'boolean' }).notNull().default(false),
+  supportedObjectTypesJson: text('supported_object_types_json').notNull().default('[]'),
+  enabledObjectTypesJson: text('enabled_object_types_json').notNull().default('[]'),
+  lastSeenAt: text('last_seen_at').notNull(),
+  lastEventSeenAt: text('last_event_seen_at'),
+  updatedAt: text('updated_at').notNull().default(now),
+  rawJson: text('raw_json')
+});
+
+export const accessUsers = sqliteTable('access_users', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  rawJson: text('raw_json'),
+  lastSeenAt: text('last_seen_at')
+});
+
+export const accessDoors = sqliteTable('access_doors', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  fullName: text('full_name'),
+  rawJson: text('raw_json'),
+  lastSeenAt: text('last_seen_at')
+});
+
+export const accessIngestState = sqliteTable('access_ingest_state', {
+  id: integer('id').primaryKey(),
+  lastTimestamp: text('last_timestamp'),
+  lastEventId: text('last_event_id'),
+  updatedAt: text('updated_at').notNull().default(now)
+});
+
+export const eventRoutes = sqliteTable('event_routes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  sourceType: text('source_type').notNull(),
+  sourceId: integer('source_id').notNull(),
+  eventClass: text('event_class').notNull(),
+  upstreamEventType: text('upstream_event_type'),
+  objectTypesJson: text('object_types_json'),
+  bindingStatus: text('binding_status').notNull(),
+  targetType: text('target_type'),
+  targetId: integer('target_id'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  notes: text('notes')
 });

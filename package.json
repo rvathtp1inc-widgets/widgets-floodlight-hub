@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
+    "test": "tsx --test tests/*.test.ts",
     "check": "tsc --noEmit",
     "db:verify": "tsx src/db/verifySchema.ts"
   },
@@ -19,7 +20,8 @@
     "drizzle-orm": "^0.44.2",
     "fastify": "^5.2.1",
     "luxon": "^3.5.0",
-    "suncalc": "^1.9.0"
+    "suncalc": "^1.9.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

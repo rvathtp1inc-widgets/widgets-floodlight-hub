@@ -9,7 +9,20 @@ import { groupRoutes } from './routes/groups.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { settingsRoutes } from './routes/settings.js';
 import { diagnosticsRoutes } from './routes/diagnostics.js';
+import { accessRoutes } from './routes/access.js';
+import { protectSourceRoutes } from './routes/protectSources.js';
+import { eventRouteRoutes } from './routes/eventRoutes.js';
+import { registerExecutionPlannerSubscriber } from './services/execution/executionPlannerSubscriber.js';
+import { FloodlightExecutor } from './services/execution/floodlightExecutor.js';
+import { GroupExecutor } from './services/execution/groupExecutor.js';
+import { registerLifecycleExecutionGate } from './services/execution/lifecycleExecutionGate.js';
+import { AccessIngestService } from './services/accessApi/accessIngestService.js';
 import { CloudSyncService } from './services/cloud/cloudSyncService.js';
+import { registerIngressDiagnosticsSubscriber } from './services/ingress/ingressDiagnosticsSubscriber.js';
+import { IngressEventDispatcher } from './services/ingress/ingressEventDispatcher.js';
+import { registerRouteEvaluatorSubscriber } from './services/ingress/routeEvaluatorSubscriber.js';
+import { ProtectApiIngestService } from './services/protectApi/protectApiIngestService.js';
+import { ProtectSourceSyncService } from './services/protectApi/protectSourceSyncService.js';
 import { TimerService } from './services/timers/timerService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,6 +35,25 @@ export function buildApp() {
   const app = Fastify({ logger: true });
   const timerService = new TimerService();
   const cloudSyncService = new CloudSyncService(config.cloud, config.device, app.log);
+  const ingressEventDispatcher = new IngressEventDispatcher();
+  const protectSourceSyncService = new ProtectSourceSyncService(app.log);
+  const accessIngestService = new AccessIngestService(config.access, app.log, ingressEventDispatcher);
+  const routeExecutionHandler = registerExecutionPlannerSubscriber({
+    logger: app.log,
+    timerService,
+    executors: [new FloodlightExecutor(), new GroupExecutor()]
+  });
+  const lifecycleExecutionGate = registerLifecycleExecutionGate({
+    logger: app.log,
+    next: routeExecutionHandler
+  });
+  registerIngressDiagnosticsSubscriber(ingressEventDispatcher, app.log);
+  registerRouteEvaluatorSubscriber(ingressEventDispatcher, app.log, lifecycleExecutionGate);
+  const protectApiIngestService = new ProtectApiIngestService(
+    app.log,
+    protectSourceSyncService,
+    ingressEventDispatcher
+  );
 
   for (const warning of config.configWarnings) {
     app.log.warn(warning);
@@ -30,15 +62,17 @@ export function buildApp() {
   app.register(fastifyStatic, {
     root: frontendDistPath,
     prefix: '/',
-    decorateReply: false,
   });
 
   app.register(async (instance) => {
     await floodlightRoutes(instance);
     await groupRoutes(instance);
-    await webhookRoutes(instance, timerService);
+    await webhookRoutes(instance, ingressEventDispatcher, protectSourceSyncService);
     await settingsRoutes(instance);
     await diagnosticsRoutes(instance, timerService, cloudSyncService);
+    await accessRoutes(instance, accessIngestService);
+    await protectSourceRoutes(instance, protectSourceSyncService);
+    await eventRouteRoutes(instance);
   });
 
   // Optional API root; move it off "/" so frontend can own "/"
@@ -60,11 +94,15 @@ export function buildApp() {
     rawDb.prepare('SELECT 1').get();
     timerService.start(config.timerPollSeconds);
     cloudSyncService.start();
+    accessIngestService.start();
+    await protectApiIngestService.start();
   });
 
   app.addHook('onClose', async () => {
     timerService.stop();
     cloudSyncService.stop();
+    accessIngestService.stop();
+    protectApiIngestService.stop();
   });
 
   return app;

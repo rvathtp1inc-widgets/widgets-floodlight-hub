@@ -3,7 +3,7 @@ import type { AxiosError } from 'axios';
 import { AstroSettingsCard } from '../components/AstroSettingsCard';
 import { HubInfoCard } from '../components/HubInfoCard';
 import { WebhookSettingsCard } from '../components/WebhookSettingsCard';
-import { useSettings, useUpdateSettings } from '../hooks/useSettings';
+import { useSettings, useSyncProtectSources, useUpdateSettings } from '../hooks/useSettings';
 import { getTodaySunriseSunset, listIanaTimezones } from '../utils/astro';
 
 type SettingsFormValues = {
@@ -12,9 +12,12 @@ type SettingsFormValues = {
   longitude: string;
   astroEnabled: boolean;
   defaultWebhookHeaderName: string;
+  protectApiEnabled: boolean;
+  protectConsoleHost: string;
+  protectApiKey: string;
 };
 
-type FormErrors = Partial<Record<'timezone' | 'latitude' | 'longitude' | 'defaultWebhookHeaderName', string>>;
+type FormErrors = Partial<Record<'timezone' | 'latitude' | 'longitude' | 'defaultWebhookHeaderName' | 'protectConsoleHost', string>>;
 type ActionMessage = { type: 'success' | 'error'; text: string } | null;
 
 const defaultValues: SettingsFormValues = {
@@ -23,6 +26,9 @@ const defaultValues: SettingsFormValues = {
   longitude: '',
   astroEnabled: false,
   defaultWebhookHeaderName: 'X-Widgets-Secret',
+  protectApiEnabled: false,
+  protectConsoleHost: '',
+  protectApiKey: '',
 };
 
 function getErrorMessage(error: unknown): string {
@@ -59,12 +65,17 @@ function validate(values: SettingsFormValues): FormErrors {
     errors.defaultWebhookHeaderName = 'Webhook header name cannot be blank.';
   }
 
+  if (values.protectApiEnabled && !values.protectConsoleHost.trim()) {
+    errors.protectConsoleHost = 'Protect Console IP / Host is required when Protect API integration is enabled.';
+  }
+
   return errors;
 }
 
 export function SettingsPage() {
   const settingsQuery = useSettings();
   const updateMutation = useUpdateSettings();
+  const syncMutation = useSyncProtectSources();
   const [formValues, setFormValues] = useState<SettingsFormValues>(defaultValues);
   const [errors, setErrors] = useState<FormErrors>({});
   const [actionMessage, setActionMessage] = useState<ActionMessage>(null);
@@ -78,6 +89,9 @@ export function SettingsPage() {
       longitude: settingsQuery.data.longitude ?? '',
       astroEnabled: settingsQuery.data.astroEnabled,
       defaultWebhookHeaderName: settingsQuery.data.defaultWebhookHeaderName,
+      protectApiEnabled: settingsQuery.data.protectApiEnabled,
+      protectConsoleHost: settingsQuery.data.protectConsoleHost ?? '',
+      protectApiKey: '',
     });
   }, [settingsQuery.data]);
 
@@ -95,7 +109,10 @@ export function SettingsPage() {
       formValues.latitude !== (settingsQuery.data.latitude ?? '') ||
       formValues.longitude !== (settingsQuery.data.longitude ?? '') ||
       formValues.astroEnabled !== settingsQuery.data.astroEnabled ||
-      formValues.defaultWebhookHeaderName !== settingsQuery.data.defaultWebhookHeaderName
+      formValues.defaultWebhookHeaderName !== settingsQuery.data.defaultWebhookHeaderName ||
+      formValues.protectApiEnabled !== settingsQuery.data.protectApiEnabled ||
+      formValues.protectConsoleHost !== (settingsQuery.data.protectConsoleHost ?? '') ||
+      !!formValues.protectApiKey.trim()
     );
   }, [formValues, settingsQuery.data]);
 
@@ -122,10 +139,52 @@ export function SettingsPage() {
         longitude: formValues.longitude.trim(),
         astroEnabled: formValues.astroEnabled,
         defaultWebhookHeaderName: formValues.defaultWebhookHeaderName.trim(),
+        protectApiEnabled: formValues.protectApiEnabled,
+        protectConsoleHost: formValues.protectConsoleHost.trim() || null,
+        ...(formValues.protectApiKey.trim() ? { protectApiKey: formValues.protectApiKey.trim() } : {}),
       });
+      setFormValues((current) => ({ ...current, protectApiKey: '' }));
       setActionMessage({ type: 'success', text: 'Hub settings saved successfully.' });
     } catch (error) {
       setActionMessage({ type: 'error', text: `Failed to save hub settings: ${getErrorMessage(error)}` });
+    }
+  }
+
+  async function onSaveProtectSettings() {
+    const nextErrors: FormErrors = {};
+    if (formValues.protectApiEnabled && !formValues.protectConsoleHost.trim()) {
+      nextErrors.protectConsoleHost = 'Protect Console IP / Host is required when Protect API integration is enabled.';
+    }
+
+    setErrors((current) => ({ ...current, protectConsoleHost: nextErrors.protectConsoleHost }));
+    if (nextErrors.protectConsoleHost) {
+      setActionMessage({ type: 'error', text: 'Please correct the highlighted Protect settings before saving.' });
+      return;
+    }
+
+    try {
+      await updateMutation.mutateAsync({
+        protectApiEnabled: formValues.protectApiEnabled,
+        protectConsoleHost: formValues.protectConsoleHost.trim() || null,
+        ...(formValues.protectApiKey.trim() ? { protectApiKey: formValues.protectApiKey.trim() } : {}),
+      });
+      setFormValues((current) => ({ ...current, protectApiKey: '' }));
+      setActionMessage({ type: 'success', text: 'Protect settings saved successfully.' });
+    } catch (error) {
+      setActionMessage({ type: 'error', text: `Failed to save Protect settings: ${getErrorMessage(error)}` });
+    }
+  }
+
+  async function onSyncProtectSources() {
+    try {
+      const result = await syncMutation.mutateAsync();
+      const total = result.totalKnownSources;
+      setActionMessage({
+        type: 'success',
+        text: typeof total === 'number' ? `Protect sources synced. ${total} source${total === 1 ? '' : 's'} known.` : 'Protect sources synced.',
+      });
+    } catch (error) {
+      setActionMessage({ type: 'error', text: `Failed to sync Protect sources: ${getErrorMessage(error)}` });
     }
   }
 
@@ -173,6 +232,82 @@ export function SettingsPage() {
             setFormValues((current) => ({ ...current, defaultWebhookHeaderName: value }));
           }}
         />
+
+        <section className="rounded border border-slate-800 bg-slate-900/70 p-4">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-white">UniFi Protect API Integration</h2>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="flex items-start gap-3 rounded border border-slate-800 bg-slate-950/50 p-3 md:col-span-2">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={formValues.protectApiEnabled}
+                onChange={(event) => setFormValues((current) => ({ ...current, protectApiEnabled: event.target.checked }))}
+              />
+              <span>
+                <span className="block text-sm font-semibold text-slate-100">Enable Protect API Integration</span>
+                <span className="mt-1 block text-xs text-slate-400">
+                  When enabled, the hub connects to the UniFi Protect API event stream and publishes normalized events into the shared routing pipeline.
+                </span>
+              </span>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Protect Console IP / Host</span>
+              <input
+                className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                value={formValues.protectConsoleHost}
+                onChange={(event) => {
+                  setErrors((current) => ({ ...current, protectConsoleHost: undefined }));
+                  setFormValues((current) => ({ ...current, protectConsoleHost: event.target.value }));
+                }}
+                placeholder="10.0.30.1"
+              />
+              <span className="block text-xs text-slate-400">IP address or hostname of the UniFi OS console running Protect.</span>
+              {errors.protectConsoleHost ? <span className="block text-xs text-rose-300">{errors.protectConsoleHost}</span> : null}
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Protect API Key</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                value={formValues.protectApiKey}
+                onChange={(event) => setFormValues((current) => ({ ...current, protectApiKey: event.target.value }))}
+                placeholder={settingsQuery.data.hasProtectApiKey ? 'Existing key saved' : ''}
+              />
+              <span className="block text-xs text-slate-400">
+                Create this API key in UniFi Protect / UniFi OS integration settings. It is sent as the X-API-KEY header.
+              </span>
+              <span className="block text-xs text-slate-500">Leave blank to preserve the existing key.</span>
+            </label>
+
+            <div className="flex flex-wrap items-start gap-3 md:col-span-2">
+              <button
+                type="button"
+                disabled={updateMutation.isPending || !isDirty}
+                className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-700"
+                onClick={() => void onSaveProtectSettings()}
+              >
+                {updateMutation.isPending ? 'Saving…' : 'Save Protect Settings'}
+              </button>
+              <div>
+                <button
+                  type="button"
+                  disabled={syncMutation.isPending}
+                  className="rounded border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-500"
+                  onClick={() => void onSyncProtectSources()}
+                >
+                  {syncMutation.isPending ? 'Syncing…' : 'Sync Protect Sources'}
+                </button>
+                <p className="mt-1 text-xs text-slate-400">Fetches cameras from Protect and updates the local Protect source inventory used by Event Routes.</p>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <HubInfoCard settings={settingsQuery.data} />
 
