@@ -12,6 +12,8 @@ import { diagnosticsRoutes } from './routes/diagnostics.js';
 import { accessRoutes } from './routes/access.js';
 import { protectSourceRoutes } from './routes/protectSources.js';
 import { eventRouteRoutes } from './routes/eventRoutes.js';
+import { semanticConditionRoutes } from './routes/semanticConditions.js';
+import { consumerBindingRoutes } from './routes/consumerBindings.js';
 import { registerExecutionPlannerSubscriber } from './services/execution/executionPlannerSubscriber.js';
 import { FloodlightExecutor } from './services/execution/floodlightExecutor.js';
 import { GroupExecutor } from './services/execution/groupExecutor.js';
@@ -73,6 +75,8 @@ export function buildApp() {
     await accessRoutes(instance, accessIngestService);
     await protectSourceRoutes(instance, protectSourceSyncService);
     await eventRouteRoutes(instance);
+    await semanticConditionRoutes(instance);
+    await consumerBindingRoutes(instance);
   });
 
   // Optional API root; move it off "/" so frontend can own "/"

@@ -11,6 +11,7 @@ if (dataDir && dataDir !== '.') {
 }
 
 const sqlite = new Database(config.dbPath);
+sqlite.pragma('foreign_keys = ON');
 sqlite.pragma('journal_mode = WAL');
 
 export const db = drizzle(sqlite, { schema });

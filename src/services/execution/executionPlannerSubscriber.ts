@@ -3,6 +3,7 @@ import { RouteEvaluationMatch } from '../ingress/routeEvaluatorSubscriber.js';
 import { TimerService } from '../timers/timerService.js';
 import { LifecycleGatedRouteEvaluationHandler } from './lifecycleExecutionGate.js';
 import { SupportedExecutionTargetType, TargetExecutor } from './targetExecutor.js';
+import { executeSemanticConditionRoute } from './semanticConditionExecutionService.js';
 
 type RejectedReason =
   | 'route_unresolved'
@@ -12,7 +13,7 @@ type RejectedReason =
   | 'access_execution_not_supported'
   | 'invalid_webhook_secret';
 
-const SUPPORTED_TARGET_TYPES = new Set<string>(['floodlight', 'group']);
+const SUPPORTED_TARGET_TYPES = new Set<string>(['floodlight', 'group', 'semantic_condition']);
 
 function eventSummary(event: Parameters<LifecycleGatedRouteEvaluationHandler>[0]['event']) {
   return {
@@ -62,6 +63,7 @@ export function registerExecutionPlannerSubscriber(input: {
   logger: FastifyBaseLogger;
   timerService: TimerService;
   executors: TargetExecutor[];
+  semanticConditionHandler?: typeof executeSemanticConditionRoute;
 }): LifecycleGatedRouteEvaluationHandler {
   const diagnosticsLogger = input.logger.child({ service: 'executionPlanner' });
   const executors = new Map<SupportedExecutionTargetType, TargetExecutor>(
@@ -69,7 +71,7 @@ export function registerExecutionPlannerSubscriber(input: {
   );
 
   return async (evaluation) => {
-    if (!evaluation.lifecycleGate.triggerAllowed) {
+    if (!evaluation.lifecycleGate.triggerAllowed && !evaluation.lifecycleGate.restoreAllowed) {
       diagnosticsLogger.info(
         {
           event: eventSummary(evaluation.event),
@@ -110,6 +112,24 @@ export function registerExecutionPlannerSubscriber(input: {
 
       const targetType = match.targetType as SupportedExecutionTargetType;
       const targetId = match.targetId as number;
+      if (match.targetType === 'semantic_condition') {
+        const lifecycleIntent = evaluation.lifecycleGate.triggerAllowed ? 'trigger' : 'restore';
+        const desiredState = lifecycleIntent === 'trigger' ? 'active' : 'inactive';
+        const result = await (input.semanticConditionHandler ?? executeSemanticConditionRoute)({
+          routeId: match.routeId,
+          semanticConditionId: targetId,
+          event: evaluation.event,
+          lifecycleIntent,
+          desiredState,
+          logger: diagnosticsLogger
+        });
+        diagnosticsLogger.info({ routeId: match.routeId, targetType: match.targetType, targetId, lifecycleIntent, desiredState, ...result }, 'Semantic condition consumer actions planned; no transport delivery claimed.');
+        continue;
+      }
+      if (!evaluation.lifecycleGate.triggerAllowed) {
+        diagnosticsLogger.info({ routeId: match.routeId, targetType, targetId, accepted: false, reason: evaluation.lifecycleGate.skipReason }, 'Trigger-only target skipped for restore lifecycle.');
+        continue;
+      }
       const executor = executors.get(targetType);
 
       if (!executor) {

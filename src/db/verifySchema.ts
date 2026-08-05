@@ -92,6 +92,12 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
     'target_id',
     'enabled',
     'notes'
+  ],
+  semantic_conditions: [
+    'id', 'semantic_key', 'label', 'enabled', 'restore_policy', 'created_at', 'updated_at'
+  ],
+  consumer_bindings: [
+    'id', 'semantic_condition_id', 'consumer_type', 'binding_json', 'enabled', 'created_at', 'updated_at'
   ]
 };
 

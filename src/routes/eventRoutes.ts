@@ -1,10 +1,11 @@
 import { asc, eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
-import { db } from '../db/client.js';
-import { eventRoutes, floodlights, groups, protectSources } from '../db/schema.js';
+import { db, rawDb } from '../db/client.js';
+import { eventRoutes, floodlights, groups, protectSources, semanticConditions } from '../db/schema.js';
 
 const VALID_SOURCE_TYPES = new Set(['protect_source']);
-const VALID_TARGET_TYPES = new Set(['floodlight', 'group']);
+const VALID_TARGET_TYPES = new Set(['floodlight', 'group', 'semantic_condition']);
+class RouteConflictError extends Error {}
 const VALID_EVENT_CLASSES = new Set(['motion', 'zone', 'line', 'audio', 'loiter']);
 const VALID_BINDING_STATUSES = new Set(['resolved', 'unresolved']);
 const UPSTREAM_EVENT_TYPES_BY_CLASS: Record<string, string> = {
@@ -216,13 +217,18 @@ async function assertTargetReferenceExists(targetType: string, targetId: number)
     return;
   }
 
+  if (targetType === 'semantic_condition') {
+    const target = await db.query.semanticConditions.findFirst({ where: eq(semanticConditions.id, targetId) });
+    if (!target) throw new Error('targetId does not reference an existing semantic condition');
+    return;
+  }
   const target = await db.query.groups.findFirst({ where: eq(groups.id, targetId) });
   if (!target) {
     throw new Error('targetId does not reference an existing group');
   }
 }
 
-async function validateRouteDraft(route: EventRouteDraft) {
+async function validateRouteDraft(route: EventRouteDraft, excludeRouteId?: number) {
   if (!VALID_EVENT_CLASSES.has(route.eventClass)) {
     throw new Error(`eventClass must be one of: ${[...VALID_EVENT_CLASSES].join(', ')}`);
   }
@@ -259,6 +265,13 @@ async function validateRouteDraft(route: EventRouteDraft) {
     }
 
     await assertTargetReferenceExists(route.targetType, route.targetId);
+  }
+  if (route.targetType === 'semantic_condition' && route.bindingStatus === 'resolved' && route.enabled) {
+    const conflict = rawDb.prepare(`SELECT 1 FROM event_routes
+      WHERE target_type = 'semantic_condition' AND target_id = ?
+        AND binding_status = 'resolved' AND enabled = 1
+        AND (? IS NULL OR id <> ?) LIMIT 1`).get(route.targetId, excludeRouteId ?? null, excludeRouteId ?? null);
+    if (conflict) throw new RouteConflictError('semantic condition already has an enabled resolved route');
   }
 }
 
@@ -338,6 +351,9 @@ export async function eventRouteRoutes(app: FastifyInstance) {
       const inserted = await db.insert(eventRoutes).values(route).returning();
       return toPublicEventRoute(inserted[0]);
     } catch (error) {
+      if (error instanceof RouteConflictError || (error as { code?: string }).code?.startsWith('SQLITE_CONSTRAINT')) {
+        return reply.code(409).send({ error: 'semantic_condition_route_conflict' });
+      }
       return reply.code(400).send({ error: 'invalid_route', details: (error as Error).message });
     }
   });
@@ -419,7 +435,7 @@ export async function eventRouteRoutes(app: FastifyInstance) {
         updates.objectTypesJson = null;
       }
 
-      await validateRouteDraft(nextRoute);
+      await validateRouteDraft(nextRoute, id);
 
       if (Object.keys(updates).length === 0) {
         return toPublicEventRoute(existing);
@@ -428,6 +444,9 @@ export async function eventRouteRoutes(app: FastifyInstance) {
       const updated = await db.update(eventRoutes).set(updates).where(eq(eventRoutes.id, id)).returning();
       return toPublicEventRoute(updated[0]);
     } catch (error) {
+      if (error instanceof RouteConflictError || (error as { code?: string }).code?.startsWith('SQLITE_CONSTRAINT')) {
+        return reply.code(409).send({ error: 'semantic_condition_route_conflict' });
+      }
       return reply.code(400).send({ error: 'invalid_route', details: (error as Error).message });
     }
   });
