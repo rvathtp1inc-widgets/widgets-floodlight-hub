@@ -161,3 +161,42 @@ test('Protect API update reaches planner but does not reach executor', async () 
   await gate(createEvaluation(createEvent({ lifecycle: 'update' })));
   assert.equal(executions.length, 0);
 });
+
+test('semantic condition planner maps trigger lifecycle to active trigger action', async () => {
+  const planned: Array<{ lifecycleIntent: string; desiredState: string }> = [];
+  const planner = registerExecutionPlannerSubscriber({
+    logger,
+    timerService: new TimerService(),
+    executors: [],
+    semanticConditionHandler: async (input) => {
+      planned.push({ lifecycleIntent: input.lifecycleIntent, desiredState: input.desiredState });
+      return { accepted: true, changed: false, delivered: false, retained: false, reason: 'consumer_bindings_completed', results: [] };
+    }
+  });
+  const gate = registerLifecycleExecutionGate({ logger, next: planner });
+  const evaluation = createEvaluation(createEvent({ lifecycle: 'add' }));
+  evaluation.matches[0].targetType = 'semantic_condition';
+  await gate(evaluation);
+  assert.deepEqual(planned, [{ lifecycleIntent: 'trigger', desiredState: 'active' }]);
+});
+
+test('restore-capable lifecycle reaches semantic condition planner as inactive restore', async () => {
+  const planned: Array<{ lifecycleIntent: string; desiredState: string }> = [];
+  const planner = registerExecutionPlannerSubscriber({
+    logger,
+    timerService: new TimerService(),
+    executors: [],
+    semanticConditionHandler: async (input) => {
+      planned.push({ lifecycleIntent: input.lifecycleIntent, desiredState: input.desiredState });
+      return { accepted: true, changed: false, delivered: false, retained: false, reason: 'consumer_bindings_completed', results: [] };
+    }
+  });
+  const gate = registerLifecycleExecutionGate({ logger, next: planner });
+  const evaluation = createEvaluation(createEvent({
+    lifecycle: 'update',
+    raw: { item: { end: 1 } }
+  }));
+  evaluation.matches[0].targetType = 'semantic_condition';
+  await gate(evaluation);
+  assert.deepEqual(planned, [{ lifecycleIntent: 'restore', desiredState: 'inactive' }]);
+});

@@ -60,6 +60,9 @@ Server defaults to `http://0.0.0.0:8787`.
 - `REQUEST_TIMEOUT_MS`: Shelly RPC timeout
 - UniFi Protect API settings are configured in the Settings page and persisted in SQLite.
 - `FLOODLIGHT_HUB_CONFIG_PATH`: optional override for provisioning config path. Default: `/usr/local/widgets-data/floodlighthub.json`
+- `VIRTUAL_SECURITY_PANEL_ENABLED`: enables the production Virtual Security Panel TCP consumer; default `false`.
+- `VIRTUAL_SECURITY_PANEL_LISTEN_HOST`: raw TCP bind host; default `0.0.0.0`.
+- `VIRTUAL_SECURITY_PANEL_LISTEN_PORT`: raw TCP listen port; default `2101`.
 
 ## Cloud provisioning config
 Cloud bootstrap and heartbeat are configured with a JSON file, not SQLite. Default path:

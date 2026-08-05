@@ -164,3 +164,23 @@ export const eventRoutes = sqliteTable('event_routes', {
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
   notes: text('notes')
 });
+
+export const semanticConditions = sqliteTable('semantic_conditions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  semanticKey: text('semantic_key').notNull().unique(),
+  label: text('label').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  restorePolicy: text('restore_policy').notNull().default('source_lifecycle'),
+  createdAt: text('created_at').notNull().default(now),
+  updatedAt: text('updated_at').notNull().default(now)
+});
+
+export const consumerBindings = sqliteTable('consumer_bindings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  semanticConditionId: integer('semantic_condition_id').notNull().references(() => semanticConditions.id),
+  consumerType: text('consumer_type').notNull(),
+  bindingJson: text('binding_json').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull().default(now),
+  updatedAt: text('updated_at').notNull().default(now)
+});
