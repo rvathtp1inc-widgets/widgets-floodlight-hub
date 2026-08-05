@@ -26,6 +26,10 @@ import { registerRouteEvaluatorSubscriber } from './services/ingress/routeEvalua
 import { ProtectApiIngestService } from './services/protectApi/protectApiIngestService.js';
 import { ProtectSourceSyncService } from './services/protectApi/protectSourceSyncService.js';
 import { TimerService } from './services/timers/timerService.js';
+import { SavantVirtualSecurityPanelConsumer } from './services/virtualSecurityPanel/virtualSecurityPanelConsumer.js';
+import { virtualSecurityPanelUnavailableResult, VirtualSecurityPanelAdapter } from './services/execution/virtualSecurityPanelAdapter.js';
+import { executeSemanticConditionRoute } from './services/execution/semanticConditionExecutionService.js';
+import { initializeVirtualSecurityPanelRuntime } from './services/execution/virtualSecurityPanelRuntime.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,10 +44,22 @@ export function buildApp() {
   const ingressEventDispatcher = new IngressEventDispatcher();
   const protectSourceSyncService = new ProtectSourceSyncService(app.log);
   const accessIngestService = new AccessIngestService(config.access, app.log, ingressEventDispatcher);
+  const virtualSecurityPanelConsumer = new SavantVirtualSecurityPanelConsumer({
+    host: config.virtualSecurityPanel.listenHost,
+    port: config.virtualSecurityPanel.listenPort,
+    logger: app.log
+  });
+  let virtualSecurityPanelAdapter: VirtualSecurityPanelAdapter | undefined;
   const routeExecutionHandler = registerExecutionPlannerSubscriber({
     logger: app.log,
     timerService,
-    executors: [new FloodlightExecutor(), new GroupExecutor()]
+    executors: [new FloodlightExecutor(), new GroupExecutor()],
+    semanticConditionHandler: (input) => executeSemanticConditionRoute({
+      ...input,
+      consumer: async (action) => virtualSecurityPanelAdapter
+        ? virtualSecurityPanelAdapter(action)
+        : virtualSecurityPanelUnavailableResult(action)
+    })
   });
   const lifecycleExecutionGate = registerLifecycleExecutionGate({
     logger: app.log,
@@ -96,6 +112,36 @@ export function buildApp() {
 
   app.addHook('onReady', async () => {
     rawDb.prepare('SELECT 1').get();
+    if (config.virtualSecurityPanel.enabled) {
+      const rows = rawDb.prepare(`SELECT binding_json FROM consumer_bindings
+        WHERE enabled = 1 AND consumer_type = 'virtual_security_panel'
+          AND json_extract(binding_json, '$.panelKey') = 'default'
+        ORDER BY id ASC`).all() as Array<{ binding_json: string }>;
+      const configuredZoneNumbers = rows.map((row) => {
+        const binding = JSON.parse(row.binding_json) as { zoneNumber: number };
+        return binding.zoneNumber;
+      });
+      let configuredZones: number[];
+      try {
+        configuredZones = await initializeVirtualSecurityPanelRuntime({
+          consumer: virtualSecurityPanelConsumer,
+          configuredZoneNumbers,
+          registerAdapter: (adapter) => { virtualSecurityPanelAdapter = adapter; }
+        });
+      } catch (error) {
+        app.log.error({
+          service: 'virtualSecurityPanel',
+          host: config.virtualSecurityPanel.listenHost,
+          port: config.virtualSecurityPanel.listenPort,
+          err: error
+        }, 'Virtual Security Panel listener failed to start.');
+        throw error;
+      }
+      app.log.info({
+        service: 'virtualSecurityPanel',
+        configuredZones
+      }, 'Virtual Security Panel consumer seeded, listening, and registered.');
+    }
     timerService.start(config.timerPollSeconds);
     cloudSyncService.start();
     accessIngestService.start();
@@ -107,6 +153,7 @@ export function buildApp() {
     cloudSyncService.stop();
     accessIngestService.stop();
     protectApiIngestService.stop();
+    if (config.virtualSecurityPanel.enabled) await virtualSecurityPanelConsumer.stop();
   });
 
   return app;

@@ -170,7 +170,7 @@ test('semantic condition planner maps trigger lifecycle to active trigger action
     executors: [],
     semanticConditionHandler: async (input) => {
       planned.push({ lifecycleIntent: input.lifecycleIntent, desiredState: input.desiredState });
-      return { accepted: true, delivered: false, reason: 'diagnostics_bindings_planned', results: [] };
+      return { accepted: true, changed: false, delivered: false, retained: false, reason: 'consumer_bindings_completed', results: [] };
     }
   });
   const gate = registerLifecycleExecutionGate({ logger, next: planner });
@@ -188,7 +188,7 @@ test('restore-capable lifecycle reaches semantic condition planner as inactive r
     executors: [],
     semanticConditionHandler: async (input) => {
       planned.push({ lifecycleIntent: input.lifecycleIntent, desiredState: input.desiredState });
-      return { accepted: true, delivered: false, reason: 'diagnostics_bindings_planned', results: [] };
+      return { accepted: true, changed: false, delivered: false, retained: false, reason: 'consumer_bindings_completed', results: [] };
     }
   });
   const gate = registerLifecycleExecutionGate({ logger, next: planner });

@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import Database from 'better-sqlite3';
+import type { ConsumerAction } from '../src/services/execution/virtualSecurityPanelDiagnosticsConsumer.js';
+import type { PlatformConsumerResult } from '../src/services/execution/virtualSecurityPanelAdapter.js';
 
 const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'semantic-foundation-'));
 const dbPath = path.join(tempDirectory, 'test.db');
@@ -132,4 +134,109 @@ test('semantic binding expansion is sequential by ID and continues after failure
     { bindingId: secondId, desiredState: 'inactive', lifecycleIntent: 'restore' }
   ]);
   assert.equal(result.results.length, 2);
+  assert.equal(result.reason, 'consumer_bindings_partially_completed');
+  assert.equal(result.accepted, true);
+  assert.equal(result.delivered, false);
+});
+
+function productionResult(
+  action: ConsumerAction,
+  outcome: Pick<PlatformConsumerResult, 'changed' | 'delivered' | 'retained' | 'reason'>
+): PlatformConsumerResult {
+  return {
+    accepted: true,
+    ...outcome,
+    consumerType: 'virtual_security_panel', bindingId: action.bindingId,
+    semanticConditionId: action.semanticCondition.id, semanticKey: action.semanticCondition.semanticKey,
+    desiredState: action.desiredState,
+    mappedConsumerState: action.desiredState === 'active' ? 'Violated' : 'Normal',
+    panelKey: action.binding.panelKey, zoneNumber: action.binding.zoneNumber,
+    traceId: action.traceId, routeId: action.routeId, lifecycleIntent: action.lifecycleIntent,
+    source: action.sourceEvent.source, eventType: action.sourceEvent.eventType,
+    eventClass: action.sourceEvent.eventClass
+  };
+}
+
+function semanticExecutionInput(semanticConditionId: number) {
+  return {
+    routeId: 88, semanticConditionId, lifecycleIntent: 'trigger' as const,
+    desiredState: 'active' as const,
+    logger: { info: () => undefined, error: () => undefined } as never,
+    event: {
+      source: 'protect_api' as const, ingressType: 'api' as const,
+      timestamp: '2026-01-01T00:00:00Z', eventId: 'aggregate-event',
+      eventType: 'smartDetectZone', eventClass: 'zone' as const, cameraId: 'camera',
+      objectTypes: ['person'], userId: null, userName: null, doorId: null, doorName: null,
+      credentialProvider: null, result: null, raw: {}, diagnosticsOnly: true
+    }
+  };
+}
+
+test('semantic aggregate reflects sent, retained-disconnected, and unchanged production outcomes', async () => {
+  const condition = rawDb.prepare("INSERT INTO semantic_conditions (semantic_key,label) VALUES ('aggregate.single','Aggregate Single') RETURNING id").get() as { id: number };
+  rawDb.prepare("INSERT INTO consumer_bindings (semantic_condition_id,consumer_type,binding_json) VALUES (?,'virtual_security_panel','{\"panelKey\":\"default\",\"zoneNumber\":37}')").run(condition.id);
+  const outcomes = [
+    { changed: true, delivered: true, retained: true, reason: 'state_changed_and_sent' },
+    { changed: true, delivered: false, retained: true, reason: 'state_changed_retained_disconnected' },
+    { changed: false, delivered: false, retained: true, reason: 'state_unchanged' }
+  ] as const;
+  for (const outcome of outcomes) {
+    const result = await executeSemanticConditionRoute({
+      ...semanticExecutionInput(condition.id),
+      consumer: async (action) => productionResult(action, outcome)
+    });
+    assert.equal(result.accepted, true);
+    assert.equal(result.changed, outcome.changed);
+    assert.equal(result.delivered, outcome.delivered);
+    assert.equal(result.retained, true);
+    assert.equal(result.reason, 'consumer_bindings_completed');
+    assert.equal(result.results.length, 1);
+  }
+});
+
+test('semantic aggregate preserves delivery truth across complete, partial, and failed binding sets', async () => {
+  const condition = rawDb.prepare("INSERT INTO semantic_conditions (semantic_key,label) VALUES ('aggregate.multiple','Aggregate Multiple') RETURNING id").get() as { id: number };
+  const insert = rawDb.prepare("INSERT INTO consumer_bindings (semantic_condition_id,consumer_type,binding_json) VALUES (?,'virtual_security_panel',?)");
+  const firstId = Number(insert.run(condition.id, '{"panelKey":"default","zoneNumber":201}').lastInsertRowid);
+  insert.run(condition.id, '{"panelKey":"default","zoneNumber":202}');
+  const input = semanticExecutionInput(condition.id);
+  const complete = await executeSemanticConditionRoute({
+    ...input,
+    consumer: async (action) => productionResult(action, action.bindingId === firstId
+      ? { changed: true, delivered: true, retained: true, reason: 'state_changed_and_sent' }
+      : { changed: true, delivered: false, retained: true, reason: 'state_changed_retained_disconnected' })
+  });
+  assert.deepEqual(
+    { accepted: complete.accepted, changed: complete.changed, delivered: complete.delivered, retained: complete.retained, reason: complete.reason },
+    { accepted: true, changed: true, delivered: true, retained: true, reason: 'consumer_bindings_completed' }
+  );
+
+  const partial = await executeSemanticConditionRoute({
+    ...input,
+    consumer: async (action) => {
+      if (action.bindingId !== firstId) throw new Error('binding failed');
+      return productionResult(action, { changed: true, delivered: true, retained: true, reason: 'state_changed_and_sent' });
+    }
+  });
+  assert.equal(partial.reason, 'consumer_bindings_partially_completed');
+  assert.equal(partial.delivered, true);
+  assert.equal(partial.results.length, 2);
+  assert.equal(partial.results[0].bindingId, firstId);
+
+  const failed = await executeSemanticConditionRoute({
+    ...input,
+    consumer: async () => { throw new Error('binding failed'); }
+  });
+  assert.deepEqual(
+    { accepted: failed.accepted, changed: failed.changed, delivered: failed.delivered, retained: failed.retained, reason: failed.reason },
+    { accepted: false, changed: false, delivered: false, retained: false, reason: 'consumer_bindings_failed' }
+  );
+});
+
+test('semantic aggregate preserves no-enabled-bindings result', async () => {
+  const condition = rawDb.prepare("INSERT INTO semantic_conditions (semantic_key,label) VALUES ('aggregate.empty','Aggregate Empty') RETURNING id").get() as { id: number };
+  const result = await executeSemanticConditionRoute(semanticExecutionInput(condition.id));
+  assert.equal(result.reason, 'no_enabled_consumer_bindings');
+  assert.equal(result.delivered, false);
+  assert.deepEqual(result.results, []);
 });

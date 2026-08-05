@@ -123,7 +123,12 @@ export function registerExecutionPlannerSubscriber(input: {
           desiredState,
           logger: diagnosticsLogger
         });
-        diagnosticsLogger.info({ routeId: match.routeId, targetType: match.targetType, targetId, lifecycleIntent, desiredState, ...result }, 'Semantic condition consumer actions planned; no transport delivery claimed.');
+        const message = result.reason === 'consumer_bindings_partially_completed'
+          ? 'Semantic condition consumer actions completed with partial failures.'
+          : result.reason === 'consumer_bindings_failed'
+            ? 'Semantic condition consumer actions failed.'
+            : 'Semantic condition consumer actions completed.';
+        diagnosticsLogger.info({ routeId: match.routeId, targetType: match.targetType, targetId, lifecycleIntent, desiredState, ...result }, message);
         continue;
       }
       if (!evaluation.lifecycleGate.triggerAllowed) {

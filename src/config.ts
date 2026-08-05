@@ -37,6 +37,12 @@ export interface AccessConfig {
   backgroundPollingEnabled: boolean;
 }
 
+export interface VirtualSecurityPanelConfig {
+  enabled: boolean;
+  listenHost: string;
+  listenPort: number;
+}
+
 interface ProvisioningConfigFile {
   device?: {
     serialNumber?: unknown;
@@ -161,6 +167,11 @@ export const config = {
     pollIntervalMs: readNumber(process.env.ACCESS_POLL_INTERVAL_MS, 1000),
     backgroundPollingEnabled: process.env.ACCESS_BACKGROUND_POLLING_ENABLED === 'true'
   } satisfies AccessConfig,
+  virtualSecurityPanel: {
+    enabled: process.env.VIRTUAL_SECURITY_PANEL_ENABLED === 'true',
+    listenHost: process.env.VIRTUAL_SECURITY_PANEL_LISTEN_HOST?.trim() || '0.0.0.0',
+    listenPort: readNumber(process.env.VIRTUAL_SECURITY_PANEL_LISTEN_PORT, 2101)
+  } satisfies VirtualSecurityPanelConfig,
   cloudConfigPath: defaultCloudConfigPath,
   device: provisioningConfig.device,
   cloud: provisioningConfig.cloud,
