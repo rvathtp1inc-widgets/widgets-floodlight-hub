@@ -1,11 +1,17 @@
 import net, { AddressInfo, Server, Socket } from 'node:net';
-import { VirtualSecurityPanelLifecycle, VirtualSecurityPanelLogger } from './types.js';
+import {
+  VirtualSecurityPanelLifecycle,
+  VirtualSecurityPanelLogger,
+  VirtualSecurityPanelTransportErrorCode,
+  VirtualSecurityPanelTransportErrorStatus
+} from './types.js';
 
 export interface SavantTcpTransportOptions {
   host?: string;
   port?: number;
   logger: VirtualSecurityPanelLogger;
   frameWriter?: SavantSocketFrameWriter;
+  now?: () => string;
 }
 
 export interface SavantWritableSocket {
@@ -75,7 +81,14 @@ export interface SavantTcpTransportConnectionHandlers {
 
 export interface VirtualSecurityPanelTransport {
   setConnectionHandlers(handlers: SavantTcpTransportConnectionHandlers): void;
-  getStatus(): { lifecycle: VirtualSecurityPanelLifecycle; connected: boolean; listeningAddress?: string };
+  getStatus(): {
+    lifecycle: VirtualSecurityPanelLifecycle;
+    connected: boolean;
+    listeningAddress?: string;
+    lastClientConnectedAt: string | null;
+    lastClientDisconnectedAt: string | null;
+    lastTransportError: VirtualSecurityPanelTransportErrorStatus | null;
+  };
   start(): Promise<void>;
   stop(): Promise<void>;
   send(frame: Buffer): Promise<{ connectionId: number }>;
@@ -95,6 +108,10 @@ export class SavantTcpTransport implements VirtualSecurityPanelTransport {
   private stopPromise?: Promise<void>;
   private handlers?: SavantTcpTransportConnectionHandlers;
   private readonly frameWriter: SavantSocketFrameWriter;
+  private readonly now: () => string;
+  private lastClientConnectedAt: string | null = null;
+  private lastClientDisconnectedAt: string | null = null;
+  private lastTransportError: VirtualSecurityPanelTransportErrorStatus | null = null;
   private writeChain: Promise<void> = Promise.resolve();
 
   constructor(options: SavantTcpTransportOptions) {
@@ -102,14 +119,26 @@ export class SavantTcpTransport implements VirtualSecurityPanelTransport {
     this.port = options.port ?? 2101;
     this.logger = options.logger;
     this.frameWriter = options.frameWriter ?? writeSavantSocketFrame;
+    this.now = options.now ?? (() => new Date().toISOString());
   }
 
   setConnectionHandlers(handlers: SavantTcpTransportConnectionHandlers): void {
     this.handlers = handlers;
   }
 
-  getStatus(): { lifecycle: VirtualSecurityPanelLifecycle; connected: boolean; listeningAddress?: string } {
-    return { lifecycle: this.lifecycle, connected: this.client !== null, listeningAddress: this.listeningAddress };
+  getStatus() {
+    return {
+      lifecycle: this.lifecycle,
+      connected: this.client !== null,
+      listeningAddress: this.listeningAddress,
+      lastClientConnectedAt: this.lastClientConnectedAt,
+      lastClientDisconnectedAt: this.lastClientDisconnectedAt,
+      lastTransportError: this.lastTransportError ? { ...this.lastTransportError } : null
+    };
+  }
+
+  private recordError(code: VirtualSecurityPanelTransportErrorCode, message: string): void {
+    this.lastTransportError = { timestamp: this.now(), code, message };
   }
 
   async start(): Promise<void> {
@@ -140,6 +169,7 @@ export class SavantTcpTransport implements VirtualSecurityPanelTransport {
     } catch (error) {
       this.lifecycle = 'faulted';
       this.server = null;
+      this.recordError('listener_bind_failed', 'Virtual Security Panel listener failed to start.');
       this.logger.error({ err: error }, 'Virtual Security Panel listener bind failed.');
       throw error;
     }
@@ -149,11 +179,13 @@ export class SavantTcpTransport implements VirtualSecurityPanelTransport {
     const previous = this.client;
     if (previous) {
       this.logger.warn({ connectionId: this.connectionId }, 'Savant client replaced.');
+      this.lastClientDisconnectedAt = this.now();
       previous.destroy();
     }
     const id = ++this.connectionId;
     this.client = socket;
     this.lifecycle = 'connected';
+    this.lastClientConnectedAt = this.now();
     socket.setKeepAlive(true);
     const remoteAddress = `${socket.remoteAddress ?? 'unknown'}:${socket.remotePort ?? 'unknown'}`;
     this.logger.info({ connectionId: id, remoteAddress }, 'Savant client connected.');
@@ -169,8 +201,12 @@ export class SavantTcpTransport implements VirtualSecurityPanelTransport {
       return;
     }
     this.client = null;
+    this.lastClientDisconnectedAt = this.now();
     if (this.lifecycle !== 'stopping' && this.lifecycle !== 'stopped') this.lifecycle = 'listening';
-    if (fromError) this.logger.error({ connectionId: id, remoteAddress, err: error }, 'Savant socket error.');
+    if (fromError) {
+      this.recordError('client_socket_error', 'The connected Savant client encountered a transport error.');
+      this.logger.error({ connectionId: id, remoteAddress, err: error }, 'Savant socket error.');
+    }
     else this.logger.info({ connectionId: id, remoteAddress }, 'Savant client disconnected.');
     this.handlers?.disconnected(id);
   }
@@ -186,6 +222,7 @@ export class SavantTcpTransport implements VirtualSecurityPanelTransport {
           this.logger.debug({ connectionId: id }, 'Savant socket backpressure waiting for drain.');
         });
       } catch (error) {
+        this.recordError('transport_send_failed', 'Failed to write Virtual Security Panel state to the connected client.');
         if (this.client === socket) socket.destroy();
         throw error;
       }

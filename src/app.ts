@@ -33,6 +33,7 @@ import { executeSemanticConditionRoute } from './services/execution/semanticCond
 import { initializeVirtualSecurityPanelRuntime } from './services/execution/virtualSecurityPanelRuntime.js';
 import { SemanticWebhookTimerManager } from './services/webhooks/semanticWebhookTimerManager.js';
 import { handleSemanticWebhookTimerExpiry } from './services/webhooks/semanticWebhookAutoRestoreService.js';
+import { createVirtualSecurityPanelStatusProvider, virtualSecurityPanelStatusRoutes } from './routes/virtualSecurityPanelStatus.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +59,13 @@ export function buildApp() {
     host: config.virtualSecurityPanel.listenHost,
     port: config.virtualSecurityPanel.listenPort,
     logger: app.log
+  });
+  const virtualSecurityPanelStatusProvider = createVirtualSecurityPanelStatusProvider({
+    config: config.virtualSecurityPanel,
+    consumer: virtualSecurityPanelConsumer,
+    readEnabledBindingJson: () => rawDb.prepare(`SELECT binding_json AS bindingJson FROM consumer_bindings
+      WHERE enabled = 1 AND consumer_type = 'virtual_security_panel'
+      ORDER BY id ASC`).all() as Array<{ bindingJson: string }>
   });
   let virtualSecurityPanelAdapter: VirtualSecurityPanelAdapter | undefined;
   const semanticConditionHandler: typeof executeSemanticConditionRoute = (input) => executeSemanticConditionRoute({
@@ -106,6 +114,7 @@ export function buildApp() {
     await semanticConditionRoutes(instance);
     await semanticWebhookRoutes(instance, semanticWebhookTimerManager);
     await consumerBindingRoutes(instance);
+    await virtualSecurityPanelStatusRoutes(instance, virtualSecurityPanelStatusProvider);
   });
 
   // Optional API root; move it off "/" so frontend can own "/"
