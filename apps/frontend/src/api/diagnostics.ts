@@ -12,6 +12,23 @@ export type HealthResponse = {
   };
 };
 
+export type VirtualSecurityPanelServiceStatus = {
+  enabled: boolean;
+  listenerState: 'disabled' | 'starting' | 'listening' | 'stopped' | 'error';
+  listenHost: string;
+  listenPort: number;
+  savantClientConnected: boolean;
+  configuredZoneCount: number;
+  retainedZoneCount: number;
+  lastClientConnectedAt: string | null;
+  lastClientDisconnectedAt: string | null;
+  lastTransportError: {
+    timestamp: string;
+    code: 'listener_bind_failed' | 'client_socket_error' | 'transport_send_failed';
+    message: string;
+  } | null;
+};
+
 export type EventLogItem = {
   id: number;
   receivedAt?: string;
@@ -67,6 +84,11 @@ export type ExecutionDiagnosticItem = {
 
 export async function fetchHealth(): Promise<HealthResponse> {
   const { data } = await api.get<HealthResponse>('/api/health');
+  return data;
+}
+
+export async function fetchVirtualSecurityPanelStatus(): Promise<VirtualSecurityPanelServiceStatus> {
+  const { data } = await api.get<VirtualSecurityPanelServiceStatus>('/api/virtual-security-panel/status');
   return data;
 }
 

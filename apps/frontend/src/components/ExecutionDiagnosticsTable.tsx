@@ -3,6 +3,7 @@ import type { ExecutionDiagnosticItem } from '../api/diagnostics';
 type Props = { records?: ExecutionDiagnosticItem[]; searchText: string; onSearchTextChange: (value: string) => void; isLoading: boolean; isError: boolean; errorMessage?: string; onRefresh: () => void; isRefreshing: boolean };
 
 const words = (value?: string | null) => value ? value.replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase()) : '—';
+const formatExecutionTime = (value: string) => new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
 function sourceLabel(record: ExecutionDiagnosticItem) {
   if (record.source === 'semantic_webhook' && record.ingressType === 'timer') return 'Semantic Webhook Timer';
   if (record.source === 'semantic_webhook') return 'Semantic Webhook';
@@ -36,9 +37,10 @@ export function ExecutionDiagnosticsTable({ records, searchText, onSearchTextCha
     {isError ? <p className="rounded border border-rose-700 bg-rose-950/40 p-3 text-sm text-rose-200">Failed to load execution diagnostics: {errorMessage ?? 'Unknown error'}</p> : null}
     {!isLoading && !isError && visible.length === 0 ? <p className="text-sm text-slate-300">No semantic execution diagnostics.</p> : null}
     {!isLoading && !isError && visible.length ? <div className="space-y-2">{visible.map((record) => <article key={record.id} className={`rounded border p-3 ${record.timerExpired ? 'border-amber-500/50 bg-amber-950/20' : 'border-slate-700 bg-slate-950/50'}`}>
+      <time dateTime={record.createdAt} className="mb-2 block text-sm font-semibold text-slate-200">{formatExecutionTime(record.createdAt)}</time>
       <div className="flex flex-wrap items-center gap-2 text-sm"><span className="font-semibold text-sky-100">{sourceLabel(record)}</span><span aria-hidden="true">→</span><span className="font-semibold text-white">{record.semanticConditionLabel ?? `Condition ${record.semanticConditionId}`}</span><span aria-hidden="true">→</span><span>{words(record.requestedState)} / {words(record.lifecycleIntent)}</span>{destination(record) ? <><span aria-hidden="true">→</span><span>{destination(record)}</span></> : null}<span aria-hidden="true">→</span><span className={record.delivered ? 'text-emerald-300' : record.accepted ? 'text-amber-200' : 'text-rose-300'}>{resultLabel(record)}</span></div>
       <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400"><span className="rounded bg-slate-800 px-2 py-0.5">{words(record.diagnosticType)}</span><span>Ingress: {words(record.ingressType)}</span>{record.stateOrigin ? <span>Origin: {words(record.stateOrigin)}</span> : null}{record.timerExpired ? <span className="font-semibold text-amber-200">Timer expired</span> : null}{record.autoRestoreSeconds !== null ? <span>Auto restore: {record.autoRestoreSeconds}s</span> : null}{record.consumerBindingId !== null ? <span>Binding #{record.consumerBindingId}</span> : null}</div>
-      <details className="mt-2 text-xs text-slate-500"><summary className="cursor-pointer">Technical details</summary><div className="mt-1 break-all">Trace ID: {record.traceId} · Sequence: {record.sequence} · Source event: {record.sourceEventType ?? record.sourceEventClass}</div></details>
+      <details className="mt-2 text-xs text-slate-500"><summary className="cursor-pointer">Technical details</summary><div className="mt-1 break-all">Recorded at: {record.createdAt} · Trace ID: {record.traceId} · Sequence: {record.sequence} · Source event: {record.sourceEventType ?? record.sourceEventClass}</div></details>
     </article>)}</div> : null}
   </section>;
 }
