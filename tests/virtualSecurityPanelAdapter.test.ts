@@ -32,7 +32,7 @@ class CapturingConsumer implements VirtualSecurityPanelConsumer {
   async start() {}
   async stop() {}
   async setDesiredState(request: SetVirtualSecurityStateRequest) { this.requests.push(request); return this.result; }
-  getStatus(): VirtualSecurityPanelStatus { return { lifecycle: 'stopped', connected: false, retainedStates: [] }; }
+  getStatus(): VirtualSecurityPanelStatus { return { lifecycle: 'stopped', connected: false, lastClientConnectedAt: null, lastClientDisconnectedAt: null, lastTransportError: null, retainedStates: [] }; }
 }
 
 class CountingTransport implements VirtualSecurityPanelTransport {
@@ -40,7 +40,7 @@ class CountingTransport implements VirtualSecurityPanelTransport {
   sends: Buffer[] = [];
   handlers?: SavantTcpTransportConnectionHandlers;
   setConnectionHandlers(handlers: SavantTcpTransportConnectionHandlers) { this.handlers = handlers; }
-  getStatus() { return { lifecycle: this.connected ? 'connected' as const : 'listening' as const, connected: this.connected }; }
+  getStatus() { return { lifecycle: this.connected ? 'connected' as const : 'listening' as const, connected: this.connected, lastClientConnectedAt: null, lastClientDisconnectedAt: null, lastTransportError: null }; }
   async start() {}
   async stop() {}
   async send(frame: Buffer) { this.sends.push(Buffer.from(frame)); return { connectionId: 1 }; }

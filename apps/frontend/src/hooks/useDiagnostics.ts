@@ -1,7 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchCommands, fetchEvents, fetchExecutionDiagnostics, fetchHealth, fetchTimers } from '../api/diagnostics';
+import { fetchCommands, fetchEvents, fetchExecutionDiagnostics, fetchHealth, fetchTimers, fetchVirtualSecurityPanelStatus } from '../api/diagnostics';
 
 const DIAGNOSTICS_POLL_MS = 10000;
+
+export function useVirtualSecurityPanelStatus() {
+  return useQuery({
+    queryKey: ['virtual-security-panel', 'status'],
+    queryFn: fetchVirtualSecurityPanelStatus,
+    refetchInterval: DIAGNOSTICS_POLL_MS,
+  });
+}
 
 export function useDiagnosticsHealth() {
   return useQuery({

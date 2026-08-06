@@ -11,6 +11,17 @@ export type VirtualSecurityPanelLifecycle =
   | 'stopping'
   | 'faulted';
 
+export type VirtualSecurityPanelTransportErrorCode =
+  | 'listener_bind_failed'
+  | 'client_socket_error'
+  | 'transport_send_failed';
+
+export interface VirtualSecurityPanelTransportErrorStatus {
+  timestamp: string;
+  code: VirtualSecurityPanelTransportErrorCode;
+  message: string;
+}
+
 export interface VirtualSecurityConsumerBinding { zoneNumber: number; }
 
 export interface SetVirtualSecurityStateRequest {
@@ -64,6 +75,9 @@ export interface VirtualSecurityPanelStatus {
   lifecycle: VirtualSecurityPanelLifecycle;
   connected: boolean;
   listeningAddress?: string;
+  lastClientConnectedAt: string | null;
+  lastClientDisconnectedAt: string | null;
+  lastTransportError: VirtualSecurityPanelTransportErrorStatus | null;
   retainedStates: RetainedVirtualSecurityZoneState[];
 }
 

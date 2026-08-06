@@ -22,7 +22,7 @@ class ControlledTransport implements VirtualSecurityPanelTransport {
   sent: Buffer[] = [];
   failNext = false;
   setConnectionHandlers(handlers: SavantTcpTransportConnectionHandlers): void { this.handlers = handlers; }
-  getStatus() { return { lifecycle: this.lifecycle, connected: this.connected }; }
+  getStatus() { return { lifecycle: this.lifecycle, connected: this.connected, lastClientConnectedAt: null, lastClientDisconnectedAt: null, lastTransportError: null }; }
   async start() { this.lifecycle = 'listening'; }
   async stop() { this.connected = false; this.lifecycle = 'stopped'; }
   async send(frame: Buffer) {
@@ -129,9 +129,12 @@ test('real TCP lifecycle is idempotent and reconnect synchronizes retained zones
   assert.equal((await readBytes(first, 28)).toString('ascii'), '0AZC004100CD\r\n0AZC037900BF\r\n');
   assert.equal(first.destroyed, false);
   first.destroy();
+  await waitForClose(first);
 
   const second = await connect(port);
   assert.equal((await readBytes(second, 28)).toString('ascii'), '0AZC004100CD\r\n0AZC037900BF\r\n');
+  assert.match(consumer.getStatus().lastClientConnectedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
+  assert.match(consumer.getStatus().lastClientDisconnectedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
   await Promise.all([consumer.stop(), consumer.stop()]);
   await waitForClose(second);
   assert.equal(second.destroyed, true);
