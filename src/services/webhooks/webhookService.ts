@@ -12,6 +12,24 @@ import {
   normalizeWebhookEvent
 } from './normalizeWebhookEvent.js';
 
+export async function authenticateWebhookSecret(input: {
+  headers: Record<string, unknown>;
+  encryptedSecret: string | null | undefined;
+  requireConfiguredSecret?: boolean;
+}) {
+  const settings = (await db.query.hubSettings.findFirst({ where: eq(hubSettings.id, 1) })) ?? {
+    defaultWebhookHeaderName: 'X-Widgets-Secret'
+  };
+  const headerName = settings.defaultWebhookHeaderName;
+  const providedSecret = String(input.headers[headerName.toLowerCase()] ?? '');
+  const expectedSecret = input.encryptedSecret ? decryptString(input.encryptedSecret) : undefined;
+  const configured = Boolean(expectedSecret);
+  const valid = input.requireConfiguredSecret
+    ? configured && providedSecret.length > 0 && expectedSecret === providedSecret
+    : !expectedSecret || expectedSecret === providedSecret;
+  return { headerName, configured, provided: providedSecret.length > 0, valid };
+}
+
 export async function handleGroupWebhook(input: {
   webhookKey: string;
   method: string;
@@ -22,19 +40,14 @@ export async function handleGroupWebhook(input: {
   ingressEventDispatcher: IngressEventDispatcher;
   protectSourceSyncService: ProtectSourceSyncService;
 }) {
-  const settings = (await db.query.hubSettings.findFirst({ where: eq(hubSettings.id, 1) })) ?? {
-    defaultWebhookHeaderName: 'X-Widgets-Secret'
-  };
-
   const group = await db.query.groups.findFirst({ where: eq(groups.webhookKey, input.webhookKey) });
   const floodlight = group ? null : await db.query.floodlights.findFirst({ where: eq(floodlights.webhookKey, input.webhookKey) });
-  const headerName = settings.defaultWebhookHeaderName.toLowerCase();
-  const providedSecret = String(input.headers[headerName] ?? '');
   const encryptedSecret = group?.sharedSecretEncrypted ?? floodlight?.sharedSecretEncrypted;
-  const expectedSecret = encryptedSecret ? decryptString(encryptedSecret) : undefined;
+  const authentication = await authenticateWebhookSecret({ headers: input.headers, encryptedSecret });
+  const headerName = authentication.headerName.toLowerCase();
   const targetType = group ? 'group' : floodlight ? 'floodlight' : null;
   const targetId = group?.id ?? floodlight?.id ?? null;
-  const sharedSecretValidated = !!targetType && (!expectedSecret || expectedSecret === providedSecret);
+  const sharedSecretValidated = !!targetType && authentication.valid;
   const receivedAt = new Date().toISOString();
 
   const cameraId = extractWebhookCameraId(input.payload);
@@ -144,7 +157,7 @@ export async function handleGroupWebhook(input: {
     targetId,
     httpMethod: input.method,
     remoteIp: input.remoteIp,
-    headerSummary: JSON.stringify({ [headerName]: providedSecret ? 'present' : 'missing' }),
+    headerSummary: JSON.stringify({ [headerName]: authentication.provided ? 'present' : 'missing' }),
     payloadRaw: input.payload ? JSON.stringify(input.payload) : null,
     authResult: sharedSecretValidated ? 'valid' : 'invalid',
     decision: ingressRejectedReason ? 'rejected' : 'accepted',

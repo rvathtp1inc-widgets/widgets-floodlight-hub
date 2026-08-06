@@ -3,7 +3,7 @@ import { FastifyBaseLogger } from 'fastify';
 export type PlatformDesiredState = 'active' | 'inactive';
 export interface ConsumerAction {
   traceId: string;
-  routeId: number;
+  routeId?: number;
   bindingId: number;
   consumerType: 'virtual_security_panel';
   semanticCondition: { id: number; semanticKey: string; label: string };

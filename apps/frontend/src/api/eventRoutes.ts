@@ -6,7 +6,7 @@ const api = axios.create({ baseURL: '' });
 
 export type BindingStatus = 'resolved' | 'unresolved';
 export type EventClass = 'motion' | 'zone' | 'line' | 'audio' | 'loiter';
-export type TargetType = 'floodlight' | 'group';
+export type TargetType = 'floodlight' | 'group' | 'semantic_condition';
 
 export type ProtectSource = {
   id: number;
@@ -51,6 +51,7 @@ export type EventRouteInput = {
 
 export type RouteFloodlightTarget = Pick<Floodlight, 'id' | 'name' | 'webhookKey' | 'automationEnabled'>;
 export type RouteGroupTarget = Pick<Group, 'id' | 'name' | 'webhookKey' | 'automationEnabled'>;
+export type RouteConditionTarget = { id: number; label: string; semanticKey: string; enabled: boolean };
 
 export async function fetchEventRoutes(): Promise<EventRoute[]> {
   const { data } = await api.get<EventRoute[]>('/api/routes');
@@ -83,5 +84,10 @@ export async function fetchRouteFloodlightTargets(): Promise<RouteFloodlightTarg
 
 export async function fetchRouteGroupTargets(): Promise<RouteGroupTarget[]> {
   const { data } = await api.get<RouteGroupTarget[]>('/api/groups');
+  return data;
+}
+
+export async function fetchRouteConditionTargets(): Promise<RouteConditionTarget[]> {
+  const { data } = await api.get<RouteConditionTarget[]>('/api/semantic-conditions');
   return data;
 }

@@ -1,11 +1,21 @@
-import { count, desc, eq } from 'drizzle-orm';
+import { asc, count, desc, eq } from 'drizzle-orm';
 import { FastifyInstance } from 'fastify';
 import { db } from '../db/client.js';
-import { activeTimers, commandLogs, eventLogs, floodlights, groups } from '../db/schema.js';
+import { activeTimers, commandLogs, eventLogs, executionDiagnostics, floodlights, groups } from '../db/schema.js';
 import { CloudSyncService } from '../services/cloud/cloudSyncService.js';
 import { TimerService } from '../services/timers/timerService.js';
 
 export async function diagnosticsRoutes(app: FastifyInstance, timerService: TimerService, cloudSyncService: CloudSyncService) {
+  app.get('/api/execution-diagnostics', async (request) => {
+    const traceId = (request.query as { traceId?: string }).traceId?.trim();
+    const rows = traceId
+      ? await db.select().from(executionDiagnostics).where(eq(executionDiagnostics.traceId, traceId)).orderBy(asc(executionDiagnostics.sequence), asc(executionDiagnostics.id))
+      : await db.select().from(executionDiagnostics).orderBy(desc(executionDiagnostics.id)).limit(500);
+    return rows.map(({ destinationSummaryJson, ...row }) => ({
+      ...row,
+      destinationSummary: destinationSummaryJson ? JSON.parse(destinationSummaryJson) as unknown : null
+    }));
+  });
   app.get('/api/events', async () => {
     const [events, floodlightRows, groupRows] = await Promise.all([
       db.select().from(eventLogs).orderBy(desc(eventLogs.id)).limit(200),

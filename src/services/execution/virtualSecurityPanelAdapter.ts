@@ -16,7 +16,7 @@ export interface PlatformConsumerResult {
   panelKey: string;
   zoneNumber: number;
   traceId: string;
-  routeId: number;
+  routeId?: number;
   lifecycleIntent: 'trigger' | 'restore';
   source: string;
   eventType: string | null;

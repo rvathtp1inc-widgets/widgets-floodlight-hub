@@ -151,6 +151,19 @@ export function registerRouteEvaluatorSubscriber(
   const diagnosticsLogger = logger.child({ service: 'routeEvaluator' });
 
   return dispatcher.subscribe(async (event) => {
+    if (event.source === 'semantic_webhook') {
+      diagnosticsLogger.info({
+        source: event.source,
+        ingressType: event.ingressType,
+        eventId: event.eventId,
+        eventType: event.eventType,
+        eventClass: event.eventClass,
+        evaluatedRouteCount: 0,
+        matchedRouteCount: 0,
+        reason: 'event_routes_not_applicable'
+      }, 'Route evaluation skipped for direct semantic action.');
+      return;
+    }
     // The current event_routes schema is source_type/source_id based. That is
     // sufficient for Protect source routes but intentionally limited for Access:
     // useful future Access routing dimensions include doorId, userId,

@@ -6,6 +6,7 @@ import {
   fetchProtectSources,
   fetchRouteFloodlightTargets,
   fetchRouteGroupTargets,
+  fetchRouteConditionTargets,
   updateEventRoute,
   type EventRouteInput,
 } from '../api/eventRoutes';
@@ -43,7 +44,13 @@ export function useRouteTargets() {
     refetchInterval: 10000,
   });
 
-  return { floodlights, groups };
+  const conditions = useQuery({
+    queryKey: [...ROUTE_TARGETS_QUERY_KEY, 'conditions'],
+    queryFn: fetchRouteConditionTargets,
+    refetchInterval: 10000,
+  });
+
+  return { floodlights, groups, conditions };
 }
 
 export function useCreateEventRoute() {

@@ -96,8 +96,20 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
   semantic_conditions: [
     'id', 'semantic_key', 'label', 'enabled', 'restore_policy', 'created_at', 'updated_at'
   ],
+  semantic_condition_webhooks: [
+    'id', 'semantic_condition_id', 'display_name', 'webhook_key', 'encrypted_shared_secret',
+    'enabled', 'restore_mode', 'auto_restore_seconds', 'created_at', 'updated_at'
+  ],
   consumer_bindings: [
     'id', 'semantic_condition_id', 'consumer_type', 'binding_json', 'enabled', 'created_at', 'updated_at'
+  ],
+  execution_diagnostics: [
+    'id', 'created_at', 'diagnostic_type', 'sequence', 'trace_id', 'ingress_type', 'source',
+    'source_event_type', 'source_event_class', 'route_id', 'semantic_webhook_id', 'webhook_key',
+    'semantic_condition_id', 'semantic_condition_key', 'semantic_condition_label', 'requested_state',
+    'lifecycle_intent', 'state_origin', 'timer_expired', 'auto_restore_seconds',
+    'consumer_binding_id', 'consumer_type', 'destination_summary_json', 'accepted',
+    'changed', 'delivered', 'retained', 'reason', 'binding_count', 'successful_binding_count', 'failed_binding_count'
   ]
 };
 
@@ -116,7 +128,14 @@ export function verifyRequiredSchema(db: Database.Database = rawDb): void {
     .filter((entry) => entry.missingColumns.length > 0);
 
   if (missingByTable.length === 0) {
-    return;
+    const webhookForeignKeys = db.prepare('PRAGMA foreign_key_list(semantic_condition_webhooks)').all() as Array<{
+      table: string; from: string; to: string; on_delete: string;
+    }>;
+    const conditionForeignKey = webhookForeignKeys.find((key) =>
+      key.table === 'semantic_conditions' && key.from === 'semantic_condition_id' && key.to === 'id'
+    );
+    if (conditionForeignKey && conditionForeignKey.on_delete.toUpperCase() === 'NO ACTION') return;
+    throw new Error('Database schema verification failed: semantic_condition_webhooks semantic condition foreign key is missing or not restrictive.');
   }
 
   const message = [

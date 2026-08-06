@@ -3,10 +3,12 @@ import { IngressEventDispatcher } from './ingressEventDispatcher.js';
 import { NormalizedIngressEvent } from './normalizedEvent.js';
 
 function buildSourceResolution(event: NormalizedIngressEvent) {
-  if (event.source === 'access') {
+  if (event.source === 'access' || event.source === 'semantic_webhook') {
     return {
       status: 'not_applicable' as const,
-      reason: 'access_source_has_no_source_resolution'
+      reason: event.source === 'access'
+        ? 'access_source_has_no_source_resolution'
+        : 'semantic_webhook_has_no_source_resolution'
     };
   }
 
