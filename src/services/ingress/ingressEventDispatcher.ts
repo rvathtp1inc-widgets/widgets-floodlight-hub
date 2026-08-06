@@ -1,6 +1,6 @@
 import { NormalizedIngressEvent } from './normalizedEvent.js';
 
-export type IngressEventHandler = (event: NormalizedIngressEvent) => void | Promise<void>;
+export type IngressEventHandler = (event: NormalizedIngressEvent) => unknown | Promise<unknown>;
 
 export class IngressEventDispatcher {
   private readonly handlers = new Set<IngressEventHandler>();
@@ -12,9 +12,11 @@ export class IngressEventDispatcher {
     };
   }
 
-  async publish(event: NormalizedIngressEvent): Promise<void> {
+  async publish(event: NormalizedIngressEvent): Promise<unknown[]> {
+    const results: unknown[] = [];
     for (const handler of this.handlers) {
-      await handler(event);
+      results.push(await handler(event));
     }
+    return results;
   }
 }

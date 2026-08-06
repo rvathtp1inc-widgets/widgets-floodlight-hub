@@ -1,10 +1,12 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { Dashboard } from './pages/Dashboard';
-import { FloodlightsPage } from './pages/Floodlights';
-import { GroupsPage } from './pages/Groups';
 import { DiagnosticsPage } from './pages/DiagnosticsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { EventRoutesPage } from './pages/EventRoutesPage';
+import { SourcesPage } from './pages/SourcesPage';
+import { ConditionsPage } from './pages/ConditionsPage';
+import { OutputsPage } from './pages/OutputsPage';
+import { DevicesPage } from './pages/DevicesPage';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-3 py-2 text-sm font-medium transition-colors ${
@@ -27,7 +29,7 @@ export default function App() {
               />
             </div>
             <div>
-              <p className="text-sm font-semibold tracking-wide text-white">Widgets Floodlight Hub</p>
+              <p className="text-sm font-semibold tracking-wide text-white">Widgets Edge Hub</p>
               <p className="text-xs text-slate-400">Local installer console</p>
             </div>
           </div>
@@ -36,14 +38,20 @@ export default function App() {
             <NavLink to="/dashboard" className={navLinkClass}>
               Dashboard
             </NavLink>
-            <NavLink to="/floodlights" className={navLinkClass}>
-              Floodlights
+            <NavLink to="/sources" className={navLinkClass}>
+              Sources
             </NavLink>
-            <NavLink to="/groups" className={navLinkClass}>
-              Groups
+            <NavLink to="/conditions" className={navLinkClass}>
+              Conditions
             </NavLink>
-            <NavLink to="/routes" className={navLinkClass}>
-              Routes
+            <NavLink to="/automation" className={navLinkClass}>
+              Automation
+            </NavLink>
+            <NavLink to="/outputs" className={navLinkClass}>
+              Outputs
+            </NavLink>
+            <NavLink to="/devices" className={navLinkClass}>
+              Devices
             </NavLink>
             <NavLink to="/diagnostics" className={navLinkClass}>
               Diagnostics
@@ -58,9 +66,14 @@ export default function App() {
       <main className="mx-auto w-full max-w-7xl p-4 md:p-8">
         <Routes>
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/floodlights" element={<FloodlightsPage />} />
-          <Route path="/groups" element={<GroupsPage />} />
-          <Route path="/routes" element={<EventRoutesPage />} />
+          <Route path="/sources" element={<SourcesPage />} />
+          <Route path="/conditions" element={<ConditionsPage />} />
+          <Route path="/automation" element={<EventRoutesPage />} />
+          <Route path="/outputs" element={<OutputsPage />} />
+          <Route path="/devices" element={<DevicesPage />} />
+          <Route path="/floodlights" element={<Navigate to="/devices?tab=floodlights" replace />} />
+          <Route path="/groups" element={<Navigate to="/devices?tab=groups" replace />} />
+          <Route path="/routes" element={<Navigate to="/automation" replace />} />
           <Route path="/diagnostics" element={<DiagnosticsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

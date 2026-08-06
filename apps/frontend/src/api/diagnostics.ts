@@ -53,6 +53,18 @@ export type ActiveTimerItem = {
   updatedAt?: string;
 };
 
+export type ExecutionDiagnosticItem = {
+  id: number; createdAt: string; diagnosticType: 'semantic_action' | 'consumer_binding' | 'semantic_aggregate';
+  sequence: number; traceId: string; ingressType: string; source: string; sourceEventType: string | null;
+  sourceEventClass: string; routeId: number | null; semanticWebhookId: number | null; webhookKey: string | null;
+  semanticConditionId: number; semanticConditionKey: string | null; semanticConditionLabel: string | null;
+  requestedState: 'active' | 'inactive'; lifecycleIntent: 'trigger' | 'restore'; consumerBindingId: number | null;
+  stateOrigin: 'explicit_active' | 'explicit_inactive' | 'auto_timeout' | null; timerExpired: boolean | null; autoRestoreSeconds: number | null;
+  consumerType: string | null; destinationSummary: Record<string, unknown> | null; accepted: boolean;
+  changed: boolean | null; delivered: boolean | null; retained: boolean | null; reason: string;
+  bindingCount: number | null; successfulBindingCount: number | null; failedBindingCount: number | null;
+};
+
 export async function fetchHealth(): Promise<HealthResponse> {
   const { data } = await api.get<HealthResponse>('/api/health');
   return data;
@@ -70,5 +82,10 @@ export async function fetchCommands(): Promise<CommandLogItem[]> {
 
 export async function fetchTimers(): Promise<ActiveTimerItem[]> {
   const { data } = await api.get<ActiveTimerItem[]>('/api/timers');
+  return data;
+}
+
+export async function fetchExecutionDiagnostics(): Promise<ExecutionDiagnosticItem[]> {
+  const { data } = await api.get<ExecutionDiagnosticItem[]>('/api/execution-diagnostics');
   return data;
 }

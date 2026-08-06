@@ -18,6 +18,7 @@ import {
   useTurnFloodlightOn,
   useUpdateFloodlight,
 } from '../hooks/useFloodlights';
+import { copyTextOrThrow as copyToClipboard } from '../utils/clipboard';
 
 type FloodlightFormValues = {
   name: string;
@@ -218,34 +219,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function buildAbsoluteWebhookUrl(origin: string, webhookKey: string): string {
   const key = webhookKey || '{webhookKey}';
   return `${origin}/api/webhooks/unifi/${key}`;
-}
-
-async function copyToClipboard(value: string): Promise<void> {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-
-  if (typeof document === 'undefined') {
-    throw new Error('Clipboard not available in this environment.');
-  }
-
-  const textArea = document.createElement('textarea');
-  textArea.value = value;
-  textArea.setAttribute('readonly', '');
-  textArea.style.position = 'fixed';
-  textArea.style.left = '-9999px';
-  textArea.style.top = '0';
-  document.body.appendChild(textArea);
-  textArea.focus();
-  textArea.select();
-
-  const copied = document.execCommand('copy');
-  document.body.removeChild(textArea);
-
-  if (!copied) {
-    throw new Error('Unable to copy to clipboard.');
-  }
 }
 
 function getErrorMessage(error: unknown): string {
@@ -553,13 +526,13 @@ export function FloodlightsPage() {
                       }
                     }}
                     className="rounded border border-slate-500 px-2 py-1 text-xs"
-                    title="Applies the recommended Shelly configuration for this system, including disabling local timers/auto behaviors and preparing the device for hub-managed control. Use this after adding a new device."
+                    title="Applies the recommended Shelly relay configuration for Widgets compatibility."
                   >
                     Standardize Config
                   </button>
                 </div>
                 <p className="mt-2 text-xs text-slate-400">
-                  Standardize Config applies recommended Shelly settings (disables local timers/auto behaviors) so this hub has full control.
+                  Applies the recommended Shelly relay configuration for Widgets compatibility.
                 </p>
               </article>
             ))}

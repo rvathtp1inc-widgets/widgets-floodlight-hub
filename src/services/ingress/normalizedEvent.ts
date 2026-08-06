@@ -1,6 +1,6 @@
-export type NormalizedEventSource = 'protect_api' | 'protect_webhook' | 'access';
-export type NormalizedEventIngressType = 'api' | 'webhook' | 'poll';
-export type NormalizedEventClass = 'zone' | 'line' | 'motion' | 'audio' | 'access_control' | 'unknown';
+export type NormalizedEventSource = 'protect_api' | 'protect_webhook' | 'access' | 'semantic_webhook';
+export type NormalizedEventIngressType = 'api' | 'webhook' | 'poll' | 'timer';
+export type NormalizedEventClass = 'zone' | 'line' | 'motion' | 'audio' | 'access_control' | 'semantic_state' | 'unknown';
 export type WebhookTargetHintType = 'floodlight' | 'group';
 
 export interface SourceResolutionContext {
@@ -24,6 +24,14 @@ export interface NormalizedEventPrecision {
   targetHintType?: WebhookTargetHintType;
   targetHintId?: number;
   sharedSecretValidated?: boolean;
+  semanticWebhookId?: number;
+  semanticConditionId?: number;
+  semanticConditionLabel?: string;
+  requestedState?: 'active' | 'inactive';
+  lifecycleIntent?: 'trigger' | 'restore';
+  stateOrigin?: 'explicit_active' | 'explicit_inactive' | 'auto_timeout';
+  timerExpired?: boolean;
+  autoRestoreSeconds?: number;
   [key: string]: unknown;
 }
 
@@ -43,7 +51,7 @@ export interface NormalizedIngressEvent<TRaw = unknown> {
   credentialProvider: string | null;
   result: string | null;
   raw: TRaw;
-  diagnosticsOnly: true;
+  diagnosticsOnly: boolean;
   resolvedSource?: SourceResolutionContext | ProtectSourceResolutionContext | null;
   lifecycle?: string;
   precision?: NormalizedEventPrecision;

@@ -70,7 +70,8 @@ export async function semanticConditionRoutes(app: FastifyInstance) {
     if (!existing) return reply.code(404).send({ error: 'not_found' });
     const routeReference = rawDb.prepare("SELECT 1 FROM event_routes WHERE target_type = 'semantic_condition' AND target_id = ? LIMIT 1").get(id);
     const bindingReference = rawDb.prepare('SELECT 1 FROM consumer_bindings WHERE semantic_condition_id = ? LIMIT 1').get(id);
-    if (routeReference || bindingReference) return reply.code(409).send({ error: 'semantic_condition_referenced' });
+    const webhookReference = rawDb.prepare('SELECT 1 FROM semantic_condition_webhooks WHERE semantic_condition_id = ? LIMIT 1').get(id);
+    if (routeReference || bindingReference || webhookReference) return reply.code(409).send({ error: 'semantic_condition_referenced' });
     await db.delete(semanticConditions).where(eq(semanticConditions.id, id));
     return { ok: true };
   });

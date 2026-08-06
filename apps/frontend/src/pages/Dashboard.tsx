@@ -1,51 +1,27 @@
-import { FloodlightCard } from '../components/FloodlightCard';
-import {
-  useFloodlights,
-  useTurnFloodlightOff,
-  useTurnFloodlightOn,
-} from '../hooks/useFloodlights';
+import { useDiagnosticsCommands, useDiagnosticsEvents, useDiagnosticsHealth } from '../hooks/useDiagnostics';
+import { useEventRoutes, useProtectSources } from '../hooks/useEventRoutes';
+import { useFloodlights } from '../hooks/useFloodlights';
+import { useGroups } from '../hooks/useGroups';
+import { useAccessStatus, useCloudStatus, useConditions, useConsumerBindings } from '../hooks/usePlatform';
+import { StatusBadge, UnavailableState } from '../components/PlatformUi';
+
+function CountCard({ label, value }: { label: string; value: number | string }) { return <div className="rounded border border-slate-800 bg-slate-900/70 p-3"><p className="text-xs uppercase tracking-wide text-slate-500">{label}</p><p className="text-2xl font-semibold text-white">{value}</p></div>; }
 
 export function Dashboard() {
-  const { data, isLoading, isError, error } = useFloodlights();
-  const onMutation = useTurnFloodlightOn();
-  const offMutation = useTurnFloodlightOff();
-
-  if (isLoading) {
-    return <p className="text-slate-300">Loading floodlights...</p>;
-  }
-
-  if (isError) {
-    return (
-      <p className="rounded-md border border-red-600/40 bg-red-950/40 p-3 text-red-200">
-        Failed to load floodlights: {error instanceof Error ? error.message : 'Unknown error'}
-      </p>
-    );
-  }
-
-  return (
-    <section className="space-y-4">
-      <header>
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <p className="text-sm text-slate-400">Manual control and live status for each zone.</p>
-      </header>
-
-      {data && data.length === 0 ? (
-        <p className="rounded-md border border-slate-700 bg-slate-900 p-4 text-slate-300">
-          No floodlights were returned from the backend.
-        </p>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {data?.map((floodlight) => (
-            <FloodlightCard
-              key={floodlight.id}
-              floodlight={floodlight}
-              onTurnOn={(id) => onMutation.mutate(id)}
-              onTurnOff={(id) => offMutation.mutate(id)}
-              isMutating={onMutation.isPending || offMutation.isPending}
-            />
-          ))}
-        </div>
-      )}
-    </section>
-  );
+  const health = useDiagnosticsHealth(); const events = useDiagnosticsEvents(); const commands = useDiagnosticsCommands();
+  const sources = useProtectSources(); const conditions = useConditions(); const routes = useEventRoutes(); const bindings = useConsumerBindings();
+  const floodlights = useFloodlights(); const groups = useGroups(); const cloud = useCloudStatus(); const access = useAccessStatus();
+  const failures = (commands.data ?? []).filter((item) => item.success === false);
+  return <section className="space-y-4">
+    <header><h1 className="text-2xl font-bold text-white">Widgets Edge Hub</h1><p className="text-sm text-slate-400">Local Sources → Automation → Conditions → Outputs continue operating independently of cloud availability.</p></header>
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="rounded border border-slate-800 bg-slate-900/70 p-3"><p className="text-xs text-slate-500">Hub</p><StatusBadge tone={health.data?.app === 'up' ? 'good' : 'warn'}>{health.data?.app === 'up' ? 'Online' : 'Unavailable'}</StatusBadge><p className="mt-2 text-xs text-slate-500">Database: {health.data?.db ?? 'Unavailable'} · Version/uptime not exposed</p></div>
+      <div className="rounded border border-slate-800 bg-slate-900/70 p-3"><p className="text-xs text-slate-500">UniFi Access</p><StatusBadge tone={access.data?.backgroundPollingRunning ? 'good' : access.data?.enabled ? 'warn' : 'neutral'}>{access.data?.backgroundPollingRunning ? 'Polling' : access.data?.enabled ? 'Not polling' : 'Disabled'}</StatusBadge><p className="mt-2 text-xs text-slate-500">Last poll: {access.data?.lastPollCompletedAt ? new Date(access.data.lastPollCompletedAt).toLocaleString() : 'Unavailable'}</p></div>
+      <div className="rounded border border-slate-800 bg-slate-900/70 p-3"><p className="text-xs text-slate-500">Cloud</p><StatusBadge tone={cloud.data?.heartbeat.state === 'success' ? 'good' : cloud.data?.enabled ? 'warn' : 'neutral'}>{cloud.data?.bootstrap.state ?? 'Unavailable'}</StatusBadge><p className="mt-2 text-xs text-slate-500">Last heartbeat: {cloud.data?.heartbeat.lastSuccessAt ? new Date(cloud.data.heartbeat.lastSuccessAt).toLocaleString() : 'None'}</p></div>
+      <div className="rounded border border-slate-800 bg-slate-900/70 p-3"><p className="text-xs text-slate-500">Virtual Security Panel</p><StatusBadge tone="neutral">Status unavailable</StatusBadge><p className="mt-2 text-xs text-slate-500">Configured zones: {new Set((bindings.data ?? []).filter((item) => item.enabled).map((item) => item.binding.zoneNumber)).size}. Listener/client status is not exposed.</p></div>
+    </div>
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6"><CountCard label="Protect Sources" value={sources.data?.length ?? '—'} /><CountCard label="Conditions" value={conditions.data?.length ?? '—'} /><CountCard label="Automations" value={routes.data?.length ?? '—'} /><CountCard label="Outputs" value={bindings.data?.length ?? '—'} /><CountCard label="Floodlights" value={floodlights.data?.length ?? '—'} /><CountCard label="Groups" value={groups.data?.length ?? '—'} /></div>
+    <div className="grid gap-4 lg:grid-cols-2"><section className="rounded border border-slate-800 bg-slate-900/70 p-4"><h2 className="font-semibold text-white">Recent Source Events</h2>{(events.data ?? []).slice(0, 5).map((item) => <div key={item.id} className="border-b border-slate-800 py-2 text-sm"><span className="text-white">{item.targetName ?? item.webhookKey ?? 'Source event'}</span><span className="ml-2 text-slate-500">{item.decision ?? item.authResult}</span></div>)}{events.data?.length === 0 ? <UnavailableState>No recent source events.</UnavailableState> : null}</section><section className="rounded border border-slate-800 bg-slate-900/70 p-4"><h2 className="font-semibold text-white">Recent Output Results</h2>{(commands.data ?? []).slice(0, 5).map((item) => <div key={item.id} className="border-b border-slate-800 py-2 text-sm"><span className="text-white">{item.floodlightName ?? 'Floodlight output'}</span><span className={`ml-2 ${item.success ? 'text-emerald-300' : 'text-rose-300'}`}>{item.success ? 'Delivered' : 'Failed'}</span></div>)}{commands.data?.length === 0 ? <UnavailableState>No recent device command results. Semantic/VSP execution diagnostics are not exposed by the current API.</UnavailableState> : null}</section></div>
+    {failures.length ? <p className="rounded border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">Attention required: {failures.length} recent device command{failures.length === 1 ? '' : 's'} failed.</p> : null}
+  </section>;
 }

@@ -9,6 +9,7 @@ import {
   useUpdateEventRoute,
 } from '../hooks/useEventRoutes';
 import type { BindingStatus, EventClass, EventRoute, EventRouteInput, TargetType } from '../api/eventRoutes';
+import { apiErrorMessage } from '../utils/apiErrors';
 
 type FormValues = {
   sourceId: string;
@@ -32,7 +33,11 @@ const eventClassOptions: Array<{ value: EventClass; label: string }> = [
   { value: 'loiter', label: 'Smart Detect Loiter' },
 ];
 const bindingStatusOptions: BindingStatus[] = ['resolved', 'unresolved'];
-const targetTypeOptions: TargetType[] = ['floodlight', 'group'];
+const targetTypeOptions: Array<{ value: TargetType; label: string }> = [
+  { value: 'semantic_condition', label: 'Set a Condition' },
+  { value: 'floodlight', label: 'Control a Floodlight Directly' },
+  { value: 'group', label: 'Control a Group Directly' },
+];
 const upstreamTypeByClass: Record<EventClass, { value: string; label: string }> = {
   motion: { value: 'motion', label: 'cameraMotionEvent / motion' },
   zone: { value: 'smartDetectZone', label: 'cameraSmartDetectZoneEvent / smartDetectZone' },
@@ -61,6 +66,8 @@ const defaultValues: FormValues = {
 };
 
 function getErrorMessage(error: unknown): string {
+  const approvedMessage = apiErrorMessage(error);
+  if (approvedMessage === 'This Condition is already controlled by another Automation or Semantic Webhook.') return approvedMessage;
   const axiosError = error as AxiosError<{ details?: string; message?: string; error?: string }>;
   return (
     axiosError.response?.data?.details ??
@@ -139,10 +146,10 @@ export function EventRoutesPage() {
   useEffect(() => {
     if (formValues.bindingStatus === 'unresolved' || !formValues.targetType) return;
     if (formValues.targetId) return;
-    const list = formValues.targetType === 'group' ? targets.groups.data : targets.floodlights.data;
+    const list = formValues.targetType === 'group' ? targets.groups.data : formValues.targetType === 'semantic_condition' ? targets.conditions.data : targets.floodlights.data;
     if (!list?.[0]) return;
     setFormValues((current) => ({ ...current, targetId: String(list[0].id) }));
-  }, [formValues.targetId, formValues.targetType, targets.floodlights.data, targets.groups.data]);
+  }, [formValues.targetId, formValues.targetType, targets.floodlights.data, targets.groups.data, targets.conditions.data]);
 
   const sourceById = useMemo(
     () => new Map((sourcesQuery.data ?? []).map((source) => [source.id, source])),
@@ -156,7 +163,8 @@ export function EventRoutesPage() {
     () => new Map((targets.groups.data ?? []).map((target) => [target.id, target])),
     [targets.groups.data],
   );
-  const currentTargets = formValues.targetType === 'group' ? targets.groups.data ?? [] : targets.floodlights.data ?? [];
+  const conditionById = useMemo(() => new Map((targets.conditions.data ?? []).map((target) => [target.id, target])), [targets.conditions.data]);
+  const currentTargets = formValues.targetType === 'group' ? targets.groups.data ?? [] : formValues.targetType === 'semantic_condition' ? targets.conditions.data ?? [] : targets.floodlights.data ?? [];
   const currentObjectTypes = objectTypesByClass[formValues.eventClass];
 
   function getRouteSourceLabel(route: EventRoute) {
@@ -165,11 +173,12 @@ export function EventRoutesPage() {
   }
 
   function getRouteTargetLabel(route: EventRoute) {
-    const target = route.targetType === 'group'
-      ? groupById.get(route.targetId ?? -1)
+    const target = route.targetType === 'group' ? groupById.get(route.targetId ?? -1)
+      : route.targetType === 'semantic_condition' ? conditionById.get(route.targetId ?? -1)
       : floodlightById.get(route.targetId ?? -1);
 
-    return route.targetType && target ? `${route.targetType}: ${target.name}` : 'None';
+    const name = target && ('name' in target ? target.name : target.label);
+    return route.targetType && name ? `${route.targetType === 'semantic_condition' ? 'Condition' : route.targetType}: ${name}` : 'Target Missing';
   }
 
   function getRouteEventLabel(route: EventRoute) {
@@ -183,10 +192,10 @@ export function EventRoutesPage() {
       const input = buildInput(formValues);
       if (editingId === null) {
         await createMutation.mutateAsync(input);
-        setActionMessage({ type: 'success', text: 'Route created.' });
+        setActionMessage({ type: 'success', text: 'Automation created.' });
       } else {
         await updateMutation.mutateAsync({ id: editingId, input });
-        setActionMessage({ type: 'success', text: 'Route updated.' });
+        setActionMessage({ type: 'success', text: 'Automation updated.' });
       }
 
       setEditingId(null);
@@ -208,7 +217,7 @@ export function EventRoutesPage() {
         setEditingId(null);
         setFormValues(defaultValues);
       }
-      setActionMessage({ type: 'success', text: 'Route deleted.' });
+      setActionMessage({ type: 'success', text: 'Automation deleted.' });
     } catch (error) {
       setActionMessage({ type: 'error', text: getErrorMessage(error) });
     } finally {
@@ -216,12 +225,13 @@ export function EventRoutesPage() {
     }
   }
 
-  const loading = routesQuery.isLoading || sourcesQuery.isLoading || targets.floodlights.isLoading || targets.groups.isLoading;
+  const loading = routesQuery.isLoading || sourcesQuery.isLoading || targets.floodlights.isLoading || targets.groups.isLoading || targets.conditions.isLoading;
 
   return (
     <section className="space-y-4">
       <header>
-        <h1 className="text-2xl font-bold text-white">Event Routes</h1>
+        <h1 className="text-2xl font-bold text-white">Automation</h1>
+        <p className="text-sm text-slate-400">WHEN a validated Protect Source event occurs, THEN set a Condition or control a Device directly.</p>
       </header>
 
       {actionMessage ? (
@@ -239,8 +249,8 @@ export function EventRoutesPage() {
       {deleteRoute ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
           <div className="w-full max-w-md rounded border border-slate-700 bg-slate-900 p-4 shadow-xl">
-            <h2 className="text-lg font-semibold text-white">Delete Route</h2>
-            <p className="mt-2 text-sm text-slate-200">Delete this event route? This cannot be undone.</p>
+            <h2 className="text-lg font-semibold text-white">Delete Automation</h2>
+            <p className="mt-2 text-sm text-slate-200">Delete this Automation? This cannot be undone.</p>
             <dl className="mt-3 space-y-1 rounded border border-slate-800 bg-slate-950/60 p-3 text-sm">
               <div className="flex justify-between gap-3">
                 <dt className="text-slate-400">Source</dt>
@@ -269,7 +279,7 @@ export function EventRoutesPage() {
                 className="rounded bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-700"
                 onClick={() => void removeRoute(deleteRoute.id)}
               >
-                {deleteMutation.isPending ? 'Deleting...' : 'Delete route'}
+                {deleteMutation.isPending ? 'Deleting...' : 'Delete Automation'}
               </button>
             </div>
           </div>
@@ -365,7 +375,7 @@ export function EventRoutesPage() {
             onChange={(event) => setFormValues((current) => ({ ...current, targetType: event.target.value as TargetType, targetId: '' }))}
             disabled={formValues.bindingStatus === 'unresolved'}
           >
-            {targetTypeOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+            {targetTypeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
         </label>
 
@@ -380,7 +390,7 @@ export function EventRoutesPage() {
           >
             <option value="">No target</option>
             {currentTargets.map((target) => (
-              <option key={target.id} value={target.id}>{target.name}</option>
+              <option key={target.id} value={target.id}>{'name' in target ? target.name : target.label}</option>
             ))}
           </select>
           {currentTargets.length === 0 ? <span className="block text-xs text-amber-200">No {formValues.targetType || 'selected'} targets configured.</span> : null}
@@ -404,7 +414,7 @@ export function EventRoutesPage() {
           >
             {bindingStatusOptions.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
-          <span className="block text-xs text-slate-400">Resolved routes point to a real configured target and can execute. Unresolved routes are saved for later but cannot execute.</span>
+          <span className="block text-xs text-slate-400">Resolved Automation points to a real configured target and can execute. Unresolved Automation is saved for later but cannot execute.</span>
         </label>
 
         <label className="space-y-1 pt-6 text-sm text-slate-200">
@@ -417,7 +427,7 @@ export function EventRoutesPage() {
           />
           Enabled
           </span>
-          <span className="block text-xs text-slate-400">Only enabled + resolved routes can execute.</span>
+          <span className="block text-xs text-slate-400">Only enabled and resolved Automation can execute.</span>
         </label>
 
         <label className="space-y-1 lg:col-span-2">
@@ -435,7 +445,7 @@ export function EventRoutesPage() {
             disabled={createMutation.isPending || updateMutation.isPending}
             className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-700"
           >
-            {editingId === null ? 'Create route' : 'Update route'}
+            {editingId === null ? 'Create Automation' : 'Update Automation'}
           </button>
           {editingId !== null ? (
             <button
@@ -452,13 +462,13 @@ export function EventRoutesPage() {
         </div>
       </form>
 
-      {loading ? <p className="text-sm text-slate-300">Loading routes...</p> : null}
+      {loading ? <p className="text-sm text-slate-300">Loading Automation...</p> : null}
 
       <div className="overflow-x-auto rounded border border-slate-800">
         <table className="min-w-full divide-y divide-slate-800 text-left text-sm">
           <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-400">
             <tr>
-              <th className="px-3 py-2">Route ID</th>
+              <th className="px-3 py-2">Automation</th>
               <th className="px-3 py-2">Source</th>
               <th className="px-3 py-2">Event</th>
               <th className="px-3 py-2">Objects</th>
@@ -482,7 +492,7 @@ export function EventRoutesPage() {
                   <td className="px-3 py-2">
                     <div className="space-y-1">
                       {routeStatusBadge(route)}
-                      <div className="text-xs text-slate-500">{route.bindingStatus}</div>
+                      <div className="text-xs text-slate-500">{route.isExecutable ? 'Ready · Resolved · Executable' : route.bindingStatus === 'unresolved' ? 'Needs Attention · Target Missing' : 'Disabled'}</div>
                     </div>
                   </td>
                   <td className="space-x-2 px-3 py-2">
@@ -498,7 +508,7 @@ export function EventRoutesPage() {
             })}
             {routesQuery.data?.length === 0 ? (
               <tr>
-                <td className="px-3 py-4 text-slate-400" colSpan={7}>No routes configured.</td>
+                <td className="px-3 py-4 text-slate-400" colSpan={7}>No Automation configured.</td>
               </tr>
             ) : null}
           </tbody>

@@ -5,6 +5,8 @@ import { HubInfoCard } from '../components/HubInfoCard';
 import { WebhookSettingsCard } from '../components/WebhookSettingsCard';
 import { useSettings, useSyncProtectSources, useUpdateSettings } from '../hooks/useSettings';
 import { getTodaySunriseSunset, listIanaTimezones } from '../utils/astro';
+import { useCloudStatus } from '../hooks/usePlatform';
+import { StatusBadge, UnavailableState } from '../components/PlatformUi';
 
 type SettingsFormValues = {
   timezone: string;
@@ -76,6 +78,7 @@ export function SettingsPage() {
   const settingsQuery = useSettings();
   const updateMutation = useUpdateSettings();
   const syncMutation = useSyncProtectSources();
+  const cloudStatus = useCloudStatus();
   const [formValues, setFormValues] = useState<SettingsFormValues>(defaultValues);
   const [errors, setErrors] = useState<FormErrors>({});
   const [actionMessage, setActionMessage] = useState<ActionMessage>(null);
@@ -203,8 +206,8 @@ export function SettingsPage() {
   return (
     <section className="space-y-4">
       <header>
-        <h1 className="text-2xl font-bold text-white">Hub Settings</h1>
-        <p className="text-sm text-slate-400">Configure hub-level options used by astro schedules and webhook authentication.</p>
+        <h1 className="text-2xl font-bold text-white">Settings</h1>
+        <p className="text-sm text-slate-400">Hub Identity, location, source systems, output services, and maintenance information.</p>
       </header>
 
       <form className="space-y-4" onSubmit={onSubmit}>
@@ -303,13 +306,25 @@ export function SettingsPage() {
                 >
                   {syncMutation.isPending ? 'Syncing…' : 'Sync Protect Sources'}
                 </button>
-                <p className="mt-1 text-xs text-slate-400">Fetches cameras from Protect and updates the local Protect source inventory used by Event Routes.</p>
+                <p className="mt-1 text-xs text-slate-400">Fetches cameras from Protect and updates the local Protect Source inventory used by Automation.</p>
               </div>
             </div>
           </div>
         </section>
 
         <HubInfoCard settings={settingsQuery.data} />
+
+        <section className="rounded border border-slate-800 bg-slate-900/70 p-4">
+          <h2 className="text-lg font-semibold text-white">Cloud</h2>
+          <div className="mt-2 flex gap-2"><StatusBadge tone={cloudStatus.data?.enabled ? 'good' : 'neutral'}>{cloudStatus.data?.enabled ? 'Enabled' : 'Disabled'}</StatusBadge><StatusBadge tone={cloudStatus.data?.identityConfigured ? 'good' : 'warn'}>{cloudStatus.data?.identityConfigured ? 'Identity configured' : 'Identity not configured'}</StatusBadge></div>
+          <p className="mt-2 text-sm text-slate-400">Bootstrap: {cloudStatus.data?.bootstrap.state ?? 'Unavailable'} · Last heartbeat: {cloudStatus.data?.heartbeat.lastSuccessAt ? new Date(cloudStatus.data.heartbeat.lastSuccessAt).toLocaleString() : 'None'}</p>
+          <p className="mt-2 text-xs text-slate-500">Cloud health is informational. Local automation continues if cloud is unavailable. Cloud configuration enforcement, licensing, and remote management are not implemented.</p>
+        </section>
+
+        <section className="rounded border border-slate-800 bg-slate-900/70 p-4">
+          <h2 className="text-lg font-semibold text-white">Virtual Security Panel</h2>
+          <UnavailableState>The current backend does not expose production listener configuration or client status through an API. Configure deployment environment values outside this console.</UnavailableState>
+        </section>
 
         {actionMessage ? (
           <p

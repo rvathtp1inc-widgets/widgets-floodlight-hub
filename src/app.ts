@@ -13,8 +13,9 @@ import { accessRoutes } from './routes/access.js';
 import { protectSourceRoutes } from './routes/protectSources.js';
 import { eventRouteRoutes } from './routes/eventRoutes.js';
 import { semanticConditionRoutes } from './routes/semanticConditions.js';
+import { semanticWebhookRoutes } from './routes/semanticWebhooks.js';
 import { consumerBindingRoutes } from './routes/consumerBindings.js';
-import { registerExecutionPlannerSubscriber } from './services/execution/executionPlannerSubscriber.js';
+import { registerExecutionPlannerSubscriber, registerSemanticActionPlannerSubscriber } from './services/execution/executionPlannerSubscriber.js';
 import { FloodlightExecutor } from './services/execution/floodlightExecutor.js';
 import { GroupExecutor } from './services/execution/groupExecutor.js';
 import { registerLifecycleExecutionGate } from './services/execution/lifecycleExecutionGate.js';
@@ -30,6 +31,8 @@ import { SavantVirtualSecurityPanelConsumer } from './services/virtualSecurityPa
 import { virtualSecurityPanelUnavailableResult, VirtualSecurityPanelAdapter } from './services/execution/virtualSecurityPanelAdapter.js';
 import { executeSemanticConditionRoute } from './services/execution/semanticConditionExecutionService.js';
 import { initializeVirtualSecurityPanelRuntime } from './services/execution/virtualSecurityPanelRuntime.js';
+import { SemanticWebhookTimerManager } from './services/webhooks/semanticWebhookTimerManager.js';
+import { handleSemanticWebhookTimerExpiry } from './services/webhooks/semanticWebhookAutoRestoreService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +45,13 @@ export function buildApp() {
   const timerService = new TimerService();
   const cloudSyncService = new CloudSyncService(config.cloud, config.device, app.log);
   const ingressEventDispatcher = new IngressEventDispatcher();
+  const semanticWebhookTimerManager = new SemanticWebhookTimerManager(async (semanticWebhookId) => {
+    try {
+      await handleSemanticWebhookTimerExpiry({ semanticWebhookId, logger: app.log, ingressEventDispatcher });
+    } catch (error) {
+      app.log.error({ semanticWebhookId, err: error }, 'Semantic webhook auto-restore timer callback failed.');
+    }
+  });
   const protectSourceSyncService = new ProtectSourceSyncService(app.log);
   const accessIngestService = new AccessIngestService(config.access, app.log, ingressEventDispatcher);
   const virtualSecurityPanelConsumer = new SavantVirtualSecurityPanelConsumer({
@@ -50,22 +60,24 @@ export function buildApp() {
     logger: app.log
   });
   let virtualSecurityPanelAdapter: VirtualSecurityPanelAdapter | undefined;
+  const semanticConditionHandler: typeof executeSemanticConditionRoute = (input) => executeSemanticConditionRoute({
+    ...input,
+    consumer: async (action) => virtualSecurityPanelAdapter
+      ? virtualSecurityPanelAdapter(action)
+      : virtualSecurityPanelUnavailableResult(action)
+  });
   const routeExecutionHandler = registerExecutionPlannerSubscriber({
     logger: app.log,
     timerService,
     executors: [new FloodlightExecutor(), new GroupExecutor()],
-    semanticConditionHandler: (input) => executeSemanticConditionRoute({
-      ...input,
-      consumer: async (action) => virtualSecurityPanelAdapter
-        ? virtualSecurityPanelAdapter(action)
-        : virtualSecurityPanelUnavailableResult(action)
-    })
+    semanticConditionHandler
   });
   const lifecycleExecutionGate = registerLifecycleExecutionGate({
     logger: app.log,
     next: routeExecutionHandler
   });
   registerIngressDiagnosticsSubscriber(ingressEventDispatcher, app.log);
+  registerSemanticActionPlannerSubscriber({ dispatcher: ingressEventDispatcher, logger: app.log, semanticConditionHandler });
   registerRouteEvaluatorSubscriber(ingressEventDispatcher, app.log, lifecycleExecutionGate);
   const protectApiIngestService = new ProtectApiIngestService(
     app.log,
@@ -85,13 +97,14 @@ export function buildApp() {
   app.register(async (instance) => {
     await floodlightRoutes(instance);
     await groupRoutes(instance);
-    await webhookRoutes(instance, ingressEventDispatcher, protectSourceSyncService);
+    await webhookRoutes(instance, ingressEventDispatcher, protectSourceSyncService, semanticWebhookTimerManager);
     await settingsRoutes(instance);
     await diagnosticsRoutes(instance, timerService, cloudSyncService);
     await accessRoutes(instance, accessIngestService);
     await protectSourceRoutes(instance, protectSourceSyncService);
     await eventRouteRoutes(instance);
     await semanticConditionRoutes(instance);
+    await semanticWebhookRoutes(instance, semanticWebhookTimerManager);
     await consumerBindingRoutes(instance);
   });
 
@@ -153,6 +166,7 @@ export function buildApp() {
     cloudSyncService.stop();
     accessIngestService.stop();
     protectApiIngestService.stop();
+    semanticWebhookTimerManager.stopAll();
     if (config.virtualSecurityPanel.enabled) await virtualSecurityPanelConsumer.stop();
   });
 

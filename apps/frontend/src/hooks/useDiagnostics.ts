@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchCommands, fetchEvents, fetchHealth, fetchTimers } from '../api/diagnostics';
+import { fetchCommands, fetchEvents, fetchExecutionDiagnostics, fetchHealth, fetchTimers } from '../api/diagnostics';
 
 const DIAGNOSTICS_POLL_MS = 10000;
 
@@ -31,6 +31,14 @@ export function useDiagnosticsTimers() {
   return useQuery({
     queryKey: ['diagnostics', 'timers'],
     queryFn: fetchTimers,
+    refetchInterval: DIAGNOSTICS_POLL_MS,
+  });
+}
+
+export function useExecutionDiagnostics() {
+  return useQuery({
+    queryKey: ['diagnostics', 'executions'],
+    queryFn: fetchExecutionDiagnostics,
     refetchInterval: DIAGNOSTICS_POLL_MS,
   });
 }

@@ -4,6 +4,7 @@ import { TimerService } from '../timers/timerService.js';
 import { LifecycleGatedRouteEvaluationHandler } from './lifecycleExecutionGate.js';
 import { SupportedExecutionTargetType, TargetExecutor } from './targetExecutor.js';
 import { executeSemanticConditionRoute } from './semanticConditionExecutionService.js';
+import { IngressEventDispatcher } from '../ingress/ingressEventDispatcher.js';
 
 type RejectedReason =
   | 'route_unresolved'
@@ -14,6 +15,61 @@ type RejectedReason =
   | 'invalid_webhook_secret';
 
 const SUPPORTED_TARGET_TYPES = new Set<string>(['floodlight', 'group', 'semantic_condition']);
+
+export interface SemanticActionPlannerResult {
+  kind: 'semantic_action_planner_result';
+  semanticConditionId: number;
+  lifecycleIntent: 'trigger' | 'restore';
+  desiredState: 'active' | 'inactive';
+  execution: Awaited<ReturnType<typeof executeSemanticConditionRoute>>;
+}
+
+export function registerSemanticActionPlannerSubscriber(input: {
+  dispatcher: IngressEventDispatcher;
+  logger: FastifyBaseLogger;
+  semanticConditionHandler?: typeof executeSemanticConditionRoute;
+}): () => void {
+  const diagnosticsLogger = input.logger.child({ service: 'executionPlanner' });
+  return input.dispatcher.subscribe(async (event) => {
+    if (event.source !== 'semantic_webhook') return;
+    const semanticConditionId = event.precision?.semanticConditionId;
+    const requestedState = event.precision?.requestedState;
+    if (!Number.isInteger(semanticConditionId) || (requestedState !== 'active' && requestedState !== 'inactive')) {
+      diagnosticsLogger.warn({ traceId: event.eventId, accepted: false, reason: 'invalid_semantic_action' }, 'Semantic action rejected by execution planner.');
+      return;
+    }
+    const lifecycleIntent = requestedState === 'active' ? 'trigger' : 'restore';
+    const execution = await (input.semanticConditionHandler ?? executeSemanticConditionRoute)({
+      semanticConditionId: semanticConditionId as number,
+      event,
+      lifecycleIntent,
+      desiredState: requestedState,
+      logger: diagnosticsLogger
+    });
+    const result: SemanticActionPlannerResult = {
+      kind: 'semantic_action_planner_result',
+      semanticConditionId: semanticConditionId as number,
+      lifecycleIntent,
+      desiredState: requestedState,
+      execution
+    };
+    diagnosticsLogger.info({
+      traceId: event.eventId,
+      semanticWebhookId: event.precision?.semanticWebhookId,
+      semanticConditionId,
+      semanticConditionLabel: event.precision?.semanticConditionLabel,
+      requestedState,
+      lifecycleIntent,
+      accepted: execution.accepted,
+      changed: 'changed' in execution ? execution.changed : false,
+      delivered: execution.delivered,
+      retained: 'retained' in execution ? execution.retained : false,
+      reason: execution.reason,
+      results: execution.results
+    }, 'Semantic webhook action completed through the execution planner.');
+    return result;
+  });
+}
 
 function eventSummary(event: Parameters<LifecycleGatedRouteEvaluationHandler>[0]['event']) {
   return {

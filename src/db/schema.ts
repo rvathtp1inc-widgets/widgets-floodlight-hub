@@ -87,6 +87,40 @@ export const eventLogs = sqliteTable('event_logs', {
   createdAt: text('created_at').notNull().default(now)
 });
 
+export const executionDiagnostics = sqliteTable('execution_diagnostics', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  createdAt: text('created_at').notNull().default(now),
+  diagnosticType: text('diagnostic_type').notNull(),
+  sequence: integer('sequence').notNull(),
+  traceId: text('trace_id').notNull(),
+  ingressType: text('ingress_type').notNull(),
+  source: text('source').notNull(),
+  sourceEventType: text('source_event_type'),
+  sourceEventClass: text('source_event_class').notNull(),
+  routeId: integer('route_id'),
+  semanticWebhookId: integer('semantic_webhook_id'),
+  webhookKey: text('webhook_key'),
+  semanticConditionId: integer('semantic_condition_id').notNull(),
+  semanticConditionKey: text('semantic_condition_key'),
+  semanticConditionLabel: text('semantic_condition_label'),
+  requestedState: text('requested_state').notNull(),
+  lifecycleIntent: text('lifecycle_intent').notNull(),
+  stateOrigin: text('state_origin'),
+  timerExpired: integer('timer_expired', { mode: 'boolean' }),
+  autoRestoreSeconds: integer('auto_restore_seconds'),
+  consumerBindingId: integer('consumer_binding_id'),
+  consumerType: text('consumer_type'),
+  destinationSummaryJson: text('destination_summary_json'),
+  accepted: integer('accepted', { mode: 'boolean' }).notNull(),
+  changed: integer('changed', { mode: 'boolean' }),
+  delivered: integer('delivered', { mode: 'boolean' }),
+  retained: integer('retained', { mode: 'boolean' }),
+  reason: text('reason').notNull(),
+  bindingCount: integer('binding_count'),
+  successfulBindingCount: integer('successful_binding_count'),
+  failedBindingCount: integer('failed_binding_count')
+});
+
 export const commandLogs = sqliteTable('command_logs', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   createdAt: text('created_at').notNull().default(now),
@@ -171,6 +205,19 @@ export const semanticConditions = sqliteTable('semantic_conditions', {
   label: text('label').notNull(),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   restorePolicy: text('restore_policy').notNull().default('source_lifecycle'),
+  createdAt: text('created_at').notNull().default(now),
+  updatedAt: text('updated_at').notNull().default(now)
+});
+
+export const semanticConditionWebhooks = sqliteTable('semantic_condition_webhooks', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  semanticConditionId: integer('semantic_condition_id').notNull().unique().references(() => semanticConditions.id),
+  displayName: text('display_name').notNull(),
+  webhookKey: text('webhook_key').notNull().unique(),
+  encryptedSharedSecret: text('encrypted_shared_secret'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  restoreMode: text('restore_mode').notNull().default('explicit_inactive'),
+  autoRestoreSeconds: integer('auto_restore_seconds'),
   createdAt: text('created_at').notNull().default(now),
   updatedAt: text('updated_at').notNull().default(now)
 });

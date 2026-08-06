@@ -11,6 +11,7 @@ import {
   useTriggerGroupTest,
   useUpdateGroup,
 } from '../hooks/useGroups';
+import { copyTextOrThrow as copyToClipboard } from '../utils/clipboard';
 
 type GroupFormValues = {
   name: string;
@@ -140,11 +141,6 @@ function buildAbsoluteWebhookUrl(origin: string, webhookKey: string): string {
 function getErrorMessage(error: unknown): string {
   const axiosError = error as AxiosError<{ message?: string; error?: string }>;
   return axiosError.response?.data?.message ?? axiosError.response?.data?.error ?? (error instanceof Error ? error.message : 'Unknown error');
-}
-
-async function copyToClipboard(value: string): Promise<void> {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) return navigator.clipboard.writeText(value);
-  throw new Error('Clipboard unavailable');
 }
 
 export function GroupsPage() {

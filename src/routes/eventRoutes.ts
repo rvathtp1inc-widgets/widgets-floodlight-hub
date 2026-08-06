@@ -6,6 +6,7 @@ import { eventRoutes, floodlights, groups, protectSources, semanticConditions } 
 const VALID_SOURCE_TYPES = new Set(['protect_source']);
 const VALID_TARGET_TYPES = new Set(['floodlight', 'group', 'semantic_condition']);
 class RouteConflictError extends Error {}
+const INGRESS_CONFLICT_MESSAGE = 'This Condition is already controlled by another Automation or Semantic Webhook.';
 const VALID_EVENT_CLASSES = new Set(['motion', 'zone', 'line', 'audio', 'loiter']);
 const VALID_BINDING_STATUSES = new Set(['resolved', 'unresolved']);
 const UPSTREAM_EVENT_TYPES_BY_CLASS: Record<string, string> = {
@@ -272,7 +273,18 @@ async function validateRouteDraft(route: EventRouteDraft, excludeRouteId?: numbe
         AND binding_status = 'resolved' AND enabled = 1
         AND (? IS NULL OR id <> ?) LIMIT 1`).get(route.targetId, excludeRouteId ?? null, excludeRouteId ?? null);
     if (conflict) throw new RouteConflictError('semantic condition already has an enabled resolved route');
+    const webhookConflict = rawDb.prepare(`SELECT 1 FROM semantic_condition_webhooks
+      WHERE semantic_condition_id = ? AND enabled = 1 LIMIT 1`).get(route.targetId);
+    if (webhookConflict) throw new RouteConflictError('semantic condition already has an enabled semantic webhook');
   }
+}
+
+function sendIngressConflict(reply: import('fastify').FastifyReply) {
+  return reply.code(409).send({
+    error: 'semantic_condition_ingress_conflict',
+    code: 'semantic_condition_ingress_conflict',
+    message: INGRESS_CONFLICT_MESSAGE
+  });
 }
 
 function toPublicEventRoute(row: EventRouteRow) {
@@ -352,7 +364,7 @@ export async function eventRouteRoutes(app: FastifyInstance) {
       return toPublicEventRoute(inserted[0]);
     } catch (error) {
       if (error instanceof RouteConflictError || (error as { code?: string }).code?.startsWith('SQLITE_CONSTRAINT')) {
-        return reply.code(409).send({ error: 'semantic_condition_route_conflict' });
+        return sendIngressConflict(reply);
       }
       return reply.code(400).send({ error: 'invalid_route', details: (error as Error).message });
     }
@@ -445,7 +457,7 @@ export async function eventRouteRoutes(app: FastifyInstance) {
       return toPublicEventRoute(updated[0]);
     } catch (error) {
       if (error instanceof RouteConflictError || (error as { code?: string }).code?.startsWith('SQLITE_CONSTRAINT')) {
-        return reply.code(409).send({ error: 'semantic_condition_route_conflict' });
+        return sendIngressConflict(reply);
       }
       return reply.code(400).send({ error: 'invalid_route', details: (error as Error).message });
     }
